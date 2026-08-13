@@ -11,6 +11,11 @@ import {
 import { ENVIRONMENT } from "../../server/config/environment.module.js";
 import type { Environment } from "../../server/config/environment.js";
 import { StorageService } from "../../server/storage/storage.service.js";
+import {
+  type CsvHeader,
+  parseCsvBatches,
+  readCsvHeader,
+} from "./csv-parser.js";
 import { classifyImportFailure } from "./import-failure-policy.js";
 import { ImportInvariantError, ImportLeaseLostError } from "./import-worker.errors.js";
 import { ImportWorkerRepository } from "./import-worker.repository.js";
@@ -77,19 +82,37 @@ export class ImportWorkerService implements OnModuleInit, OnApplicationShutdown 
 
     try {
       if (job.processedBytes < job.totalBytes) {
+        const csvHeader = job.format === "csv" && job.processedBytes > 0
+          ? await this.loadCsvHeader(job)
+          : undefined;
         const object = await this.storage.getRangeStream(
           job.sourceObjectPath,
           job.processedBytes,
         );
-        this.assertRangeResponse(job, object.contentLength, object.contentRange);
+        this.assertRangeResponse(
+          job.totalBytes,
+          job.processedBytes,
+          object.contentLength,
+          object.contentRange,
+        );
         this.activeStream = object.stream;
 
-        for await (const batch of parseNdjsonBatches(object.stream, {
-          maxLineBytes: this.environment.IMPORT_MAX_LINE_BYTES,
-          batchSize: this.environment.IMPORT_BATCH_SIZE,
-          initialByteOffset: job.processedBytes,
-          initialLineNumber: job.lastLineNumber,
-        })) {
+        const batches = job.format === "csv"
+          ? parseCsvBatches(object.stream, {
+            batchSize: this.environment.IMPORT_BATCH_SIZE,
+            header: csvHeader,
+            initialByteOffset: job.processedBytes,
+            initialLineNumber: job.lastLineNumber,
+            maxRecordBytes: this.environment.IMPORT_MAX_LINE_BYTES,
+          })
+          : parseNdjsonBatches(object.stream, {
+            maxLineBytes: this.environment.IMPORT_MAX_LINE_BYTES,
+            batchSize: this.environment.IMPORT_BATCH_SIZE,
+            initialByteOffset: job.processedBytes,
+            initialLineNumber: job.lastLineNumber,
+          });
+
+        for await (const batch of batches) {
           const progress = await this.imports.commitBatch({
             job,
             batch,
@@ -165,25 +188,40 @@ export class ImportWorkerService implements OnModuleInit, OnApplicationShutdown 
     }
   }
 
+  private async loadCsvHeader(job: ClaimedImportJob): Promise<CsvHeader> {
+    const object = await this.storage.getRangeStream(job.sourceObjectPath, 0);
+    this.assertRangeResponse(job.totalBytes, 0, object.contentLength, object.contentRange);
+    this.activeStream = object.stream;
+    try {
+      return await readCsvHeader(object.stream, this.environment.IMPORT_MAX_LINE_BYTES);
+    } finally {
+      object.stream.destroy();
+      if (this.activeStream === object.stream) {
+        this.activeStream = null;
+      }
+    }
+  }
+
   private assertRangeResponse(
-    job: ClaimedImportJob,
+    totalBytes: number,
+    startByte: number,
     contentLength: number,
     contentRange?: string,
   ): void {
-    const expectedLength = job.totalBytes - job.processedBytes;
+    const expectedLength = totalBytes - startByte;
     if (contentLength !== expectedLength) {
       throw new ImportInvariantError("Object range size does not match the import checkpoint.");
     }
-    if (job.processedBytes === 0 && contentRange === undefined) {
+    if (startByte === 0 && contentRange === undefined) {
       return;
     }
 
     const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(contentRange ?? "");
     if (
       !match
-      || Number(match[1]) !== job.processedBytes
-      || Number(match[2]) !== job.totalBytes - 1
-      || Number(match[3]) !== job.totalBytes
+      || Number(match[1]) !== startByte
+      || Number(match[2]) !== totalBytes - 1
+      || Number(match[3]) !== totalBytes
     ) {
       throw new ImportInvariantError("Object storage returned an unexpected byte range.");
     }

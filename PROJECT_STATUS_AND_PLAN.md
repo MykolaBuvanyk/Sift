@@ -102,7 +102,8 @@ contracts -> zod only
 - `npm ci` під Node.js 22 — успішно;
 - `npm run lint` — успішно;
 - `npm run typecheck` — успішно;
-- `npm test` — 44/44;
+- `npm test` — 68/68;
+- `npm run test:memory` — 1,000,000 NDJSON + 1,000,000 CSV rows під 192 MB heap;
 - `npm run build` — contracts, NestJS backend/worker і Next.js успішно;
 - `npm run db:generate` — migration згенеровано;
 - `docker compose config` — валідний;
@@ -115,17 +116,8 @@ contracts -> zod only
 
 ## 4. Що ще не реалізовано функціонально
 
-На поточному етапі ще немає:
-
-- API error report;
-- CSV streaming parser та інтеграція NDJSON parser у worker lifecycle;
-- bounded batch pipeline;
-- PostgreSQL claim через `FOR UPDATE SKIP LOCKED`;
-- lease heartbeat і crash recovery;
-- checkpoint/resume через Storage Range request;
-- атомарного запису contacts/errors/counters/checkpoint;
-- повноцінного dashboard;
-- інтеграційних, crash/resume і memory stress тестів.
+Після завершення CSV pipeline та етапу 11 залишаються production Docker images, повний CI
+integration stack, deployment hardening і фінальна документація етапу 12.
 
 ## 5. Точний план наступних етапів
 
@@ -246,7 +238,7 @@ conditional presigned `PUT`; повторний idempotency key повертає
 job у `pending` без зміни checkpoint/counters. Для `completed` зафіксовано ідемпотентний
 `200` no-op (`retried: false`), для `pending`/`running` — `409 IMPORT.RETRY_NOT_ALLOWED`.
 
-### Етап 6 — потоковий NDJSON parser
+### Етап 6 — потокові NDJSON/CSV parsers
 
 Статус: **реалізовано та перевірено**.
 
@@ -290,6 +282,16 @@ checkpoints і oversized lines без накопичення всього ряд
 backpressure-aware batches до 1000 рядків. `IMPORT_MAX_LINE_BYTES` і `IMPORT_BATCH_SIZE`
 мають bounds у startup environment schema. Unit-тести покривають UTF-8 chunk boundaries,
 `LF`/`CRLF`, EOF line, oversized rows, parsing/validation errors і bounded excerpts.
+
+#### 6.4 CSV extension — завершено
+
+Додано bounded byte-level CSV record reader із підтримкою `LF`/`CRLF`, quoted commas,
+escaped quotes, embedded newlines, UTF-8 chunk boundaries та EOF record. Header вимагає
+`email`/`full_name`, дозволяє опційні `phone`/`tags` у довільному порядку і відхиляє duplicate
+або unknown columns. Row-level syntax/schema errors не зупиняють import. На resume worker
+перечитує окремим bounded stream лише header mapping, а data Range відкриває з committed byte
+checkpoint. Repository claim і dashboard активовані для `csv`; tags приймають JSON array або
+`|`-розділений список.
 
 ### Етап 7 — PostgreSQL job queue, lease та recovery
 
@@ -378,7 +380,9 @@ dedup markers, counters, byte/line checkpoint і lease heartbeat. `(owner_id, em
 `last_line_number = imported_count + failed_count + duplicate_count`. Completion/failure
 очищають lease fields і записують bounded sanitized failure metadata.
 
-### Етап 9 — потоковий error report
+### Етап 9 — потоковий error report — завершено
+
+Статус: **реалізовано та перевірено**.
 
 #### 9.1 Repository read
 
@@ -402,7 +406,17 @@ dedup markers, counters, byte/line checkpoint і lease heartbeat. `(owner_id, em
 - disconnect клієнта звільняє cursor/connection;
 - чужий job повертає `404`.
 
-### Етап 10 — dashboard
+Реалізовано: `GET /imports/:id/errors` до відправлення заголовків перевіряє owner-scoped job
+і повертає однаковий `404` для чужого та неіснуючого ID. `import_row_errors` читаються у
+порядку `line_number` keyset-сторінками по 250 рядків; кожен batch-запит повторно містить
+`owner_id`, тому перевірка не залежить лише від початкового lookup. Відповідь —
+`application/x-ndjson` attachment, побудований через Node `Readable`/Nest `StreamableFile`:
+Express pipe поважає backpressure, весь звіт не матеріалізується у пам'яті, а disconnect
+знищує source stream. Довготривалий database cursor/connection не утримується між batch-ами.
+
+### Етап 10 — dashboard — завершено
+
+Статус: **реалізовано та перевірено у браузері**.
 
 #### 10.1 Client foundation
 
@@ -435,7 +449,23 @@ dedup markers, counters, byte/line checkpoint і lease heartbeat. `(owner_id, em
 - polling не працює для terminal jobs;
 - UI коректно показує partial failures.
 
-### Етап 11 — обов'язкові тести
+Реалізовано: `/imports` лишається тонкою Server Component сторінкою, а інтерактивний workspace
+винесено у feature-based client boundary. TanStack Query володіє server state, polling працює
+кожні 1.5 секунди лише для non-terminal job і автоматично вимикається для `completed/failed`.
+Typed client валідує metadata та кожну JSON-відповідь спільними Zod-контрактами. Upload іде
+напряму з браузера у MinIO через presigned conditional `PUT`, показує progress, після чого UI
+викликає finalize та відображає bytes, percent, усі counters, partial completion, retry і звіт.
+CSV control активовано після підключення CSV parser/worker path; реальний browser smoke довів
+quoted/multiline CSV flow із точними counters та streaming error report.
+
+Bearer token не включається у client bundle і URL: thin Next.js BFF у `src/app/api` валідує
+вхідні payload/UUID, додає token server-side, не кешує job state та allowlist-ить response
+headers. Error report проксіюється як Web Stream без проміжного `blob`/масиву. Browser smoke
+довів повний NDJSON flow: 4 рядки дали 2 imports, 1 duplicate, 1 error, 100% і робочий download.
+
+### Етап 11 — обов'язкові тести — завершено
+
+Статус: **реалізовано та перевірено**.
 
 #### 11.1 Unit
 
@@ -481,6 +511,18 @@ dedup markers, counters, byte/line checkpoint і lease heartbeat. `(owner_id, em
 - усі acceptance scenarios із задачі мають автоматичний доказ;
 - crash/resume не створює дублів і не подвоює counters;
 - large-file test завершується без OOM.
+
+Реалізовано: unit-тести покривають NDJSON/CSV chunk і logical-record boundaries, UTF-8,
+quoted/multiline CSV, header validation, stable row errors, oversized records, dedup та failure
+policy. PostgreSQL integration доводить concurrent `SKIP LOCKED`, stale lease fencing, atomic
+commit/replay та claim обох форматів. Acceptance test комітить generated 5k NDJSON batches і
+симулює CSV crash після першого commit, lease takeover, Range resume з окремим header mapping та
+completion без повторних contacts/counters. Наявні HTTP E2E перевіряють auth, owner isolation і
+streaming report; browser smoke перевірив реальні API → MinIO → worker flows для NDJSON і CSV.
+
+Окремий `npm run test:memory` генерує дані на льоту без fixtures і в ізольованих процесах
+обробляє по 1,000,000 NDJSON та CSV rows з `--max-old-space-size=192`. Зафіксований peak RSS
+delta: 147.6 MB для NDJSON і 146.3 MB для CSV; обидва завершилися без OOM.
 
 ### Етап 12 — Docker, CI та фінальне завершення
 
@@ -536,7 +578,8 @@ dedup markers, counters, byte/line checkpoint і lease heartbeat. `(owner_id, em
 
 Найближчі реалізаційні кроки:
 
-1. реалізувати Етап 9: потоковий owner-safe error report;
-2. після стабілізації report contract перейти до dashboard.
+1. реалізувати production Docker images і повний compose stack етапу 12;
+2. додати GitHub Actions для clean migrations, integration/E2E, audit та окремого memory stress;
+3. завершити deployment hardening, документацію і фінальне Definition of Done review.
 
 Такий порядок дає вертикальний результат на кожному кроці та не створює worker-логіку без готових persistence/storage boundaries.

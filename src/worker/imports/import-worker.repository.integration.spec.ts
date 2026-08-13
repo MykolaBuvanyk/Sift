@@ -42,6 +42,7 @@ integration("ImportWorkerRepository integration", () => {
       id,
       ownerId,
       idempotencyKey: `claim-${index}`,
+      format: index === 0 ? "ndjson" : "csv",
     })));
 
     const claimed = await Promise.all([
@@ -50,6 +51,7 @@ integration("ImportWorkerRepository integration", () => {
     ]);
 
     expect(new Set(claimed.map((job) => job?.id))).toEqual(new Set(ids));
+    expect(new Set(claimed.map((job) => job?.format))).toEqual(new Set(["ndjson", "csv"]));
     await Promise.all(claimed.map((job) => (
       job ? repository.release(job.id, job.leaseToken) : Promise.resolve(false)
     )));

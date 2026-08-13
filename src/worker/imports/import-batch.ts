@@ -1,9 +1,9 @@
 import { ImportInvariantError } from "./import-worker.errors.js";
 import type { CommitImportBatchInput } from "./import-worker.types.js";
-import type { ParsedNdjsonRow } from "./ndjson-parser.types.js";
+import type { ParsedImportRow } from "./ndjson-parser.types.js";
 
-type ValidRow = Extract<ParsedNdjsonRow, { kind: "valid" }>;
-type InvalidRow = Extract<ParsedNdjsonRow, { kind: "error" }>;
+type ValidRow = Extract<ParsedImportRow, { kind: "valid" }>;
+type InvalidRow = Extract<ParsedImportRow, { kind: "error" }>;
 
 export interface PartitionedImportBatch {
   readonly validRows: readonly ValidRow[];
@@ -37,7 +37,7 @@ export function validateImportBatch({ job, batch }: CommitImportBatchInput): voi
 }
 
 export function partitionImportBatch(
-  rows: readonly ParsedNdjsonRow[],
+  rows: readonly ParsedImportRow[],
 ): PartitionedImportBatch {
   const validRows: ValidRow[] = [];
   const invalidRows: InvalidRow[] = [];

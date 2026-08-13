@@ -35,7 +35,6 @@ export class ImportWorkerRepository {
         .select()
         .from(importJobs)
         .where(and(
-          eq(importJobs.format, "ndjson"),
           isNotNull(importJobs.uploadedAt),
           or(
             eq(importJobs.status, "pending"),
@@ -293,10 +292,6 @@ function toClaimedJob(
   leaseToken: string,
   leaseExpiresAt: Date,
 ): ClaimedImportJob {
-  if (row.format !== "ndjson") {
-    throw new ImportInvariantError("Only NDJSON jobs may be claimed by this worker.");
-  }
-
   return {
     id: row.id,
     ownerId: row.ownerId,

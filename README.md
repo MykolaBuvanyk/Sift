@@ -5,6 +5,7 @@ Streaming and resumable contact imports built with a Next.js dashboard, a NestJS
 ## Runtime boundaries
 
 - `src/app` and `src/client` — Next.js dashboard.
+- `src/app/api` — thin Next.js BFF that keeps the local Bearer token server-side.
 - `src/server/api` — NestJS HTTP API.
 - `src/worker` — independent NestJS worker process.
 - `src/contracts` — framework-independent Zod contracts.
@@ -42,6 +43,10 @@ Health endpoints are public. All current and future business endpoints are prote
 send `Authorization: Bearer <AUTH_BEARER_TOKEN>`. Ownership is always derived from
 `AUTH_OWNER_ID` on the server and is never accepted from request metadata.
 
+The browser calls same-origin `/api/imports/*` Route Handlers. They validate payloads, attach the
+local `AUTH_BEARER_TOKEN` server-side, and stream only allowlisted response headers back to the
+browser. `SIFT_API_URL` configures their NestJS upstream and defaults to `http://127.0.0.1:3001`.
+
 ## Import upload flow
 
 1. `POST /imports` with `idempotency_key`, `format`, `filename`, and `declared_size_bytes`.
@@ -49,6 +54,7 @@ send `Authorization: Bearer <AUTH_BEARER_TOKEN>`. Ownership is always derived fr
    value, including `If-None-Match: *`.
 3. Call `POST /imports/:jobId/finalize` without a body.
 4. Read current progress from `GET /imports/:jobId`.
+5. Download row-level failures from `GET /imports/:jobId/errors`.
 
 Failed finalized jobs can be resumed with `POST /imports/:jobId/retry`. Retry reuses the same
 job and preserves its byte/line checkpoint and counters. Retrying a completed job is an
@@ -63,12 +69,27 @@ Range request from the last committed byte checkpoint, and commits contacts, row
 counters, checkpoint, and lease heartbeat in one transaction. Lease tokens fence stale workers;
 replayed checkpoints are idempotent and transient storage failures return the job to `pending`.
 
+CSV files use a header row. Required columns are `email` and `full_name`; optional columns are
+`phone` and `tags`, in any order. Unknown or duplicate headers fail the job safely. Standard CSV
+quoting supports commas, escaped quotes, CRLF/LF, and embedded newlines. `tags` accepts either a
+JSON string array or a `|`-separated list. CSV resume re-reads only the bounded header, then opens
+the data stream from the committed byte checkpoint.
+
+The error endpoint returns an authenticated, owner-scoped NDJSON attachment ordered by source
+line number. It uses bounded keyset pages and HTTP backpressure, so even a large report is not
+materialized as one in-memory array.
+
+The `/imports` dashboard implements this complete flow with TanStack Query. Polling runs only
+while a job is non-terminal, upload bytes travel directly from the browser to MinIO, failed jobs
+can resume from their checkpoint, and completed/failed jobs expose the streamed error report.
+
 ## Verification
 
 ```bash
 npm run lint
 npm run typecheck
 npm test
+npm run test:memory
 npm run build
 docker compose config
 ```

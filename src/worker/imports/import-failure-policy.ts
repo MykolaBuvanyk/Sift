@@ -1,4 +1,5 @@
 import { StorageError } from "../../server/storage/storage.error.js";
+import { CsvFormatError } from "./csv-parser.js";
 import { ImportInvariantError } from "./import-worker.errors.js";
 
 export interface ImportFailureDisposition {
@@ -8,6 +9,13 @@ export interface ImportFailureDisposition {
 }
 
 export function classifyImportFailure(error: unknown): ImportFailureDisposition {
+  if (error instanceof CsvFormatError) {
+    return {
+      action: "fail",
+      code: "IMPORT.INVALID_CSV_HEADER",
+      message: "The CSV file has an invalid header or no data rows.",
+    };
+  }
   if (error instanceof StorageError) {
     if (error.code === "STORAGE_OBJECT_NOT_FOUND") {
       return {

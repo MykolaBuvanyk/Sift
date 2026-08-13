@@ -1,10 +1,10 @@
-import type { NdjsonBatch } from "./ndjson-parser.types.js";
+import type { ImportBatch } from "./ndjson-parser.types.js";
 
 export interface ClaimedImportJob {
   readonly id: string;
   readonly ownerId: string;
   readonly sourceObjectPath: string;
-  readonly format: "ndjson";
+  readonly format: "csv" | "ndjson";
   readonly totalBytes: number;
   readonly processedBytes: number;
   readonly lastLineNumber: number;
@@ -17,7 +17,7 @@ export interface ClaimedImportJob {
 
 export interface CommitImportBatchInput {
   readonly job: ClaimedImportJob;
-  readonly batch: NdjsonBatch;
+  readonly batch: ImportBatch;
   readonly leaseSeconds: number;
 }
 

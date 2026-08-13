@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Post,
   Res,
+  StreamableFile,
 } from "@nestjs/common";
 import type {
   CreateImportResponse,
@@ -22,11 +23,16 @@ import {
   type AuthenticatedOwner,
 } from "../../core/auth/current-owner.decorator.js";
 import { CreateImportDto } from "./dto/create-import.dto.js";
+import { ImportErrorReportService } from "./import-error-report.service.js";
 import { ImportService } from "./import.service.js";
 
 @Controller("imports")
 export class ImportController {
-  constructor(@Inject(ImportService) private readonly imports: ImportService) {}
+  constructor(
+    @Inject(ImportService) private readonly imports: ImportService,
+    @Inject(ImportErrorReportService)
+    private readonly errorReports: ImportErrorReportService,
+  ) {}
 
   @Post()
   async create(
@@ -55,6 +61,27 @@ export class ImportController {
     @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
   ): Promise<ImportJob> {
     return this.imports.getStatus(owner.id, id);
+  }
+
+  @Get(":id/errors")
+  async downloadErrors(
+    @CurrentOwner() owner: AuthenticatedOwner,
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const report = await this.errorReports.open(owner.id, id);
+    const stream = report.getStream();
+    const destroyOnDisconnect = (): void => {
+      stream.destroy();
+    };
+    const removeDisconnectHandler = (): void => {
+      response.off("close", destroyOnDisconnect);
+    };
+
+    response.once("close", destroyOnDisconnect);
+    stream.once("close", removeDisconnectHandler);
+    stream.once("end", removeDisconnectHandler);
+    return report;
   }
 
   @Post(":id/retry")

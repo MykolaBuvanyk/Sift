@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { StorageError } from "../../server/storage/storage.error.js";
+import { CsvFormatError } from "./csv-parser.js";
 import { classifyImportFailure } from "./import-failure-policy.js";
 import { ImportInvariantError } from "./import-worker.errors.js";
 
@@ -19,5 +20,11 @@ describe("classifyImportFailure", () => {
       .toMatchObject({ action: "fail", code: "IMPORT.SOURCE_MISSING" });
     expect(classifyImportFailure(new ImportInvariantError("internal detail")))
       .toMatchObject({ action: "fail", code: "IMPORT.DATA_INTEGRITY_FAILURE" });
+    expect(classifyImportFailure(new CsvFormatError("private header detail")))
+      .toEqual({
+        action: "fail",
+        code: "IMPORT.INVALID_CSV_HEADER",
+        message: "The CSV file has an invalid header or no data rows.",
+      });
   });
 });
