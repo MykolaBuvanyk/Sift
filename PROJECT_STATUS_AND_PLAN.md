@@ -77,9 +77,7 @@ contracts -> zod only
 - створено початкові Zod-контракти `Contact` та `ImportFormat`;
 - додано один стартовий unit-тест контракту контакту.
 
-### Етап 2 — локальна інфраструктура і початкова schema — частково завершено
-
-Виконано:
+### Етап 2 — database та storage foundation — завершено
 
 - додано Docker Compose із PostgreSQL 17 та MinIO;
 - додано healthchecks, localhost-only ports і named volumes;
@@ -88,27 +86,28 @@ contracts -> zod only
 - створено ключ `(owner_id, idempotency_key)` для ідемпотентності job;
 - створено ключ `(owner_id, email)` для дедуплікації контактів;
 - створено worker eligibility index;
-- згенеровано початкову SQL migration.
-
-Ще не виконано:
-
-- schema ще не застосовувалася до чистої локальної бази;
-- немає runtime `DatabaseModule` і Drizzle client;
-- немає MinIO bucket initialization;
-- немає `StorageModule` та S3 service;
-- немає readiness endpoint із реальною перевіркою PostgreSQL/MinIO;
-- database constraints ще потрібно посилити відповідно до інваріантів import state machine.
+- додано runtime `DatabaseModule` з одним Drizzle client поверх `pg.Pool` для кожного process;
+- налаштовано окремі pool limits для API/worker, connect/statement timeouts і graceful shutdown;
+- додано `lease_token`, `uploaded_at`, state/counter/byte checks та indexes для claim/status;
+- `content_hash` обчислюється під час finalize; до `uploaded_at` він залишається `NULL`;
+- зафіксовано normalized lowercase email і case-insensitive uniqueness;
+- додано `StorageModule`/`StorageService`: opaque owner-prefixed keys, presigned PUT, HEAD і Range stream;
+- додано bounded S3 timeouts і нормалізовані storage errors;
+- додано one-shot `minio-init`, який створює bucket `sift-imports`;
+- додано `GET /health/ready` з реальними PostgreSQL/MinIO checks і draining semantics;
+- згенеровано та застосовано migrations до чистої локальної PostgreSQL.
 
 ### Виконані перевірки
 
 - `npm ci` під Node.js 22 — успішно;
 - `npm run lint` — успішно;
 - `npm run typecheck` — успішно;
-- `npm test` — 1/1;
+- `npm test` — 6/6;
 - `npm run build` — contracts, NestJS backend/worker і Next.js успішно;
 - `npm run db:generate` — migration згенеровано;
 - `docker compose config` — валідний;
-- API smoke test `GET /health/live` — `{"status":"ok"}`.
+- API smoke test `GET /health/live` — `{"status":"ok"}`;
+- API smoke test `GET /health/ready` — PostgreSQL і MinIO `ok`.
 
 ### Відоме технічне попередження
 
@@ -133,55 +132,9 @@ contracts -> zod only
 
 ## 5. Точний план наступних етапів
 
-### Етап 3 — завершити database та storage foundation
+### Етап 3 — auth, contracts та API foundation
 
-#### 3.1 PostgreSQL/Drizzle runtime
-
-- створити `DatabaseModule`;
-- створити один Drizzle client поверх `pg.Pool`;
-- використати різні pool-size значення для API і worker;
-- додати connect timeout, statement timeout і graceful pool shutdown;
-- додати `ping()` для readiness;
-- застосувати migration до чистої бази.
-
-#### 3.2 Посилити database schema
-
-- додати `lease_token uuid` для fencing старого worker;
-- додати checks для невід'ємних bytes, line numbers і counters;
-- додати state checks для `pending/running/completed/failed`;
-- додати check `processed_bytes <= total_bytes`;
-- додати узгодженість lease-полів зі статусом `running`;
-- вирішити момент обчислення `content_hash`: до створення job або під час finalize;
-- зафіксувати нормалізацію email та case-insensitive uniqueness;
-- перевірити indexes під claim, status і error-report queries.
-
-#### 3.3 MinIO/S3 adapter
-
-- створити `StorageModule` і `StorageService`;
-- створювати bucket `sift-imports` під час локального setup;
-- генерувати opaque owner-prefixed object keys;
-- реалізувати presigned upload;
-- реалізувати `HEAD` metadata check;
-- реалізувати Range stream від `processed_bytes`;
-- додати timeouts і нормалізовані storage errors.
-
-#### 3.4 Readiness
-
-- залишити `/health/live` без зовнішніх викликів;
-- додати `/health/ready`;
-- readiness перевіряє PostgreSQL і MinIO з короткими timeout;
-- під час shutdown readiness має повертати `503`.
-
-Критерій готовності:
-
-- чистий `docker compose up` піднімає PostgreSQL і MinIO;
-- migration застосовується без ручного SQL;
-- API може зробити DB ping і Storage HEAD/list operation;
-- liveness/readiness мають різну семантику.
-
-### Етап 4 — auth, contracts та API foundation
-
-#### 4.1 Мінімальна auth-модель
+#### 3.1 Мінімальна auth-модель
 
 - використати статичний Bearer token відповідно до scope guard завдання;
 - token конфігурується через environment;
@@ -189,7 +142,7 @@ contracts -> zod only
 - заборонити приймати `ownerId` з body/query;
 - усі repository queries фільтрувати за `owner_id`.
 
-#### 4.2 API contracts
+#### 3.2 API contracts
 
 - додати strict Zod/class-validator DTO для створення import;
 - додати contracts для job status і progress;
@@ -198,7 +151,7 @@ contracts -> zod only
 - додати стабільний error response `{ code, message, details?, traceId }`;
 - додати global validation pipe та exception filter.
 
-#### 4.3 HTTP foundation
+#### 3.3 HTTP foundation
 
 - додати request/correlation ID;
 - додати structured logging із redaction;
@@ -213,11 +166,11 @@ contracts -> zod only
 - невалідні DTO повертають стабільний `400` contract;
 - секрети й authorization headers не потрапляють у logs.
 
-### Етап 5 — створення import job і upload flow
+### Етап 4 — створення import job і upload flow
 
 Рекомендований варіант: direct-to-MinIO presigned upload, тому що він не проводить великі bytes через API.
 
-#### 5.1 Створення reservation/job
+#### 4.1 Створення reservation/job
 
 - реалізувати `POST /imports`;
 - приймати `idempotency_key`, format, filename hint і declared size;
@@ -227,7 +180,7 @@ contracts -> zod only
 - при повторі ключа з іншими metadata повертати `409`;
 - повернути короткоживий presigned upload URL.
 
-#### 5.2 Finalize upload
+#### 4.2 Finalize upload
 
 - реалізувати `POST /imports/:id/finalize` як необхідний технічний крок;
 - виконати Storage HEAD;
@@ -236,7 +189,7 @@ contracts -> zod only
 - лише після успішної перевірки зробити job доступною worker;
 - зробити finalize ідемпотентним.
 
-#### 5.3 Cleanup
+#### 4.3 Cleanup
 
 - очищати прострочені незавершені reservations і orphan objects;
 - не видаляти object, який уже належить running/completed job.
@@ -248,16 +201,16 @@ contracts -> zod only
 - worker не може claim job до завершення upload;
 - metadata та object ownership перевіряються server-side.
 
-### Етап 6 — status, retry та owner-safe queries
+### Етап 5 — status, retry та owner-safe queries
 
-#### 6.1 Status endpoint
+#### 5.1 Status endpoint
 
 - реалізувати `GET /imports/:id`;
 - повертати status, counters, processed/total bytes і percent;
 - обчислювати percent без ділення на нуль;
 - повертати `404` для чужого або неіснуючого ID.
 
-#### 6.2 Retry endpoint
+#### 5.2 Retry endpoint
 
 - реалізувати `POST /imports/:id/retry`;
 - дозволяти retry лише `failed` job;
@@ -271,9 +224,9 @@ contracts -> zod only
 - progress contract стабільний;
 - retry не створює нову job і не обнуляє підтверджений прогрес.
 
-### Етап 7 — потоковий NDJSON parser
+### Етап 6 — потоковий NDJSON parser
 
-#### 7.1 Byte line reader
+#### 6.1 Byte line reader
 
 - приймати Node `Readable`/Web Stream;
 - декодувати UTF-8 інкрементально;
@@ -283,7 +236,7 @@ contracts -> zod only
 - checkpoint ставити тільки після повного delimiter;
 - встановити `MAX_LINE_BYTES`.
 
-#### 7.2 Per-row parsing і validation
+#### 6.2 Per-row parsing і validation
 
 - виконувати `JSON.parse` лише одного рядка;
 - перевіряти кожен запис через `contactSchema`;
@@ -292,7 +245,7 @@ contracts -> zod only
 - класифікувати parse і validation errors стабільними codes;
 - не зупиняти stream через один невалідний рядок.
 
-#### 7.3 Batching і backpressure
+#### 6.3 Batching і backpressure
 
 - формувати batch максимум 500–1000 рядків;
 - тримати не більше одного незакоміченого batch на першій реалізації;
@@ -306,9 +259,9 @@ contracts -> zod only
 - peak memory не росте пропорційно розміру source file;
 - битий рядок повертається як row error, а parser продовжує роботу.
 
-### Етап 8 — PostgreSQL job queue, lease та recovery
+### Етап 7 — PostgreSQL job queue, lease та recovery
 
-#### 8.1 Claim
+#### 7.1 Claim
 
 - вибирати `pending` або прострочену `running` job;
 - використовувати коротку transaction із `FOR UPDATE SKIP LOCKED`;
@@ -316,14 +269,14 @@ contracts -> zod only
 - встановлювати `claimed_at`, `lease_expires_at`, status `running`;
 - гарантувати, що concurrent workers отримують різні jobs.
 
-#### 8.2 Heartbeat/fencing
+#### 7.2 Heartbeat/fencing
 
 - поновлювати lease після кожного committed batch;
 - кожен update перевіряє `job_id + lease_token`;
 - старий worker після втрати lease не може оновити job;
 - heartbeat failure зупиняє читання stream.
 
-#### 8.3 Graceful shutdown і recovery
+#### 7.3 Graceful shutdown і recovery
 
 - worker перестає claim нові jobs після SIGTERM;
 - завершує поточну transaction або безпечно відпускає job;
@@ -337,9 +290,9 @@ contracts -> zod only
 - stale worker не може commit після takeover;
 - kill/restart продовжує import із committed checkpoint.
 
-### Етап 9 — атомарний batch commit і точні counters
+### Етап 8 — атомарний batch commit і точні counters
 
-#### 9.1 Batch classification
+#### 8.1 Batch classification
 
 - визначити й зафіксувати точну семантику `imported`, `duplicate`, `failed`;
 - дедуплікувати однакові emails у batch;
@@ -347,7 +300,7 @@ contracts -> zod only
 - перевіряти існуючі contacts owner-а;
 - використовувати `(owner_id, email)` як фінальний database guard.
 
-#### 9.2 Одна transaction на batch
+#### 8.2 Одна transaction на batch
 
 - вставити нові contacts;
 - записати `import_row_errors`;
@@ -357,7 +310,7 @@ contracts -> zod only
 - перевірити expected previous checkpoint і lease token;
 - rollback усього batch при будь-якій помилці.
 
-#### 9.3 Completion
+#### 8.3 Completion
 
 - після EOF перевірити counter invariant;
 - встановити `completed` і `finished_at`;
@@ -376,16 +329,16 @@ last_line_number = imported_count + failed_count + duplicate_count
 - crash до commit не залишає часткові дані;
 - crash після commit resume-иться з наступного рядка.
 
-### Етап 10 — потоковий error report
+### Етап 9 — потоковий error report
 
-#### 10.1 Repository read
+#### 9.1 Repository read
 
 - читати errors у порядку `(line_number)`;
 - використовувати cursor/keyset pagination або PostgreSQL cursor;
 - вибирати обмежену кількість rows за раз;
 - завжди фільтрувати job через `owner_id`.
 
-#### 10.2 HTTP stream
+#### 9.2 HTTP stream
 
 - реалізувати `GET /imports/:id/errors`;
 - віддавати NDJSON або CSV stream;
@@ -400,16 +353,16 @@ last_line_number = imported_count + failed_count + duplicate_count
 - disconnect клієнта звільняє cursor/connection;
 - чужий job повертає `404`.
 
-### Етап 11 — dashboard
+### Етап 10 — dashboard
 
-#### 11.1 Client foundation
+#### 10.1 Client foundation
 
 - додати typed API client;
 - додати TanStack Query provider;
 - тримати server state у Query, а не дублювати в Zustand;
 - додати Bearer token для локального scope.
 
-#### 11.2 Create import UI
+#### 10.2 Create import UI
 
 - форма вибору NDJSON/CSV файла;
 - client-side prevalidation лише як UX, не як security boundary;
@@ -418,7 +371,7 @@ last_line_number = imported_count + failed_count + duplicate_count
 - finalize;
 - progress/error states для кожної фази.
 
-#### 11.3 Progress UI
+#### 10.3 Progress UI
 
 - polling лише для non-terminal jobs;
 - автоматично зупиняти polling після completed/failed;
@@ -433,9 +386,9 @@ last_line_number = imported_count + failed_count + duplicate_count
 - polling не працює для terminal jobs;
 - UI коректно показує partial failures.
 
-### Етап 12 — обов'язкові тести
+### Етап 11 — обов'язкові тести
 
-#### 12.1 Unit
+#### 11.1 Unit
 
 - contact validation;
 - NDJSON chunk/line boundary;
@@ -445,7 +398,7 @@ last_line_number = imported_count + failed_count + duplicate_count
 - retry/backoff/state transitions;
 - raw excerpt truncation.
 
-#### 12.2 Integration
+#### 11.2 Integration
 
 - Drizzle migrations на чистій PostgreSQL;
 - idempotent job creation;
@@ -455,7 +408,7 @@ last_line_number = imported_count + failed_count + duplicate_count
 - owner isolation;
 - Range stream із MinIO.
 
-#### 12.3 E2E
+#### 11.3 E2E
 
 - happy path із великим generated file;
 - mixed valid/invalid rows;
@@ -466,7 +419,7 @@ last_line_number = imported_count + failed_count + duplicate_count
 - streaming error report;
 - API auth і foreign-owner boundaries.
 
-#### 12.4 Memory/stress
+#### 11.4 Memory/stress
 
 - генерувати 1–5 млн рядків під час тесту, не комітити fixture;
 - запускати worker із заданим `--max-old-space-size`;
@@ -480,9 +433,9 @@ last_line_number = imported_count + failed_count + duplicate_count
 - crash/resume не створює дублів і не подвоює counters;
 - large-file test завершується без OOM.
 
-### Етап 13 — Docker, CI та фінальне завершення
+### Етап 12 — Docker, CI та фінальне завершення
 
-#### 13.1 Docker
+#### 12.1 Docker
 
 - додати multi-stage Dockerfile;
 - один backend image запускати командами API або worker;
@@ -493,7 +446,7 @@ last_line_number = imported_count + failed_count + duplicate_count
 - non-root, read-only root filesystem, dropped capabilities;
 - resource limits і healthchecks.
 
-#### 13.2 CI
+#### 12.2 CI
 
 - Node.js 22 і `npm ci`;
 - lint, typecheck, unit tests;
@@ -504,7 +457,7 @@ last_line_number = imported_count + failed_count + duplicate_count
 - dependency audit;
 - окремий memory stress workflow.
 
-#### 13.3 Документація
+#### 12.3 Документація
 
 - setup від чистого clone;
 - environment variables;
@@ -516,7 +469,7 @@ last_line_number = imported_count + failed_count + duplicate_count
 - crash simulation;
 - verification commands.
 
-#### 13.4 Фінальне рев'ю
+#### 12.4 Фінальне рев'ю
 
 - перевірити кожен Definition of Done пункт задачі;
 - виконати code-quality, security, NestJS, React і Docker review;
@@ -534,10 +487,9 @@ last_line_number = imported_count + failed_count + duplicate_count
 
 Найближчі реалізаційні кроки:
 
-1. завершити Етап 3: DatabaseModule, StorageModule, migration apply, bucket init;
-2. реалізувати Етап 4: auth, contracts, validation, error/logging foundation;
-3. реалізувати Етап 5: job reservation, presigned upload і finalize;
-4. додати Етап 6: status/retry API;
-5. лише після стабільного upload/job lifecycle переходити до parser і worker.
+1. реалізувати Етап 3: auth, contracts, validation, error/logging foundation;
+2. реалізувати Етап 4: job reservation, presigned upload і finalize;
+3. додати Етап 5: status/retry API;
+4. лише після стабільного upload/job lifecycle переходити до parser і worker.
 
 Такий порядок дає вертикальний результат на кожному кроці та не створює worker-логіку без готових persistence/storage boundaries.

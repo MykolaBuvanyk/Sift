@@ -1,5 +1,6 @@
 import {
   BeforeApplicationShutdown,
+  Inject,
   Injectable,
   OnApplicationBootstrap,
   ServiceUnavailableException,
@@ -21,8 +22,8 @@ export class HealthService implements OnApplicationBootstrap, BeforeApplicationS
   private acceptingTraffic = false;
 
   constructor(
-    private readonly database: DatabaseService,
-    private readonly storage: StorageService,
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(StorageService) private readonly storage: StorageService,
   ) {}
 
   onApplicationBootstrap(): void {

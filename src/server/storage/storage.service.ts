@@ -61,7 +61,7 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
   }
 
   createObjectKey(ownerId: string): string {
-    return `owners/${ownerId}/imports/${randomUUID()}`;
+    return `owners/${encodeURIComponent(ownerId)}/imports/${randomUUID()}`;
   }
 
   async createPresignedUploadUrl(key: string, contentType: string): Promise<string> {

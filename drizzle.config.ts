@@ -5,6 +5,6 @@ export default defineConfig({
   out: "./drizzle/migrations",
   schema: "./src/server/database/schema.ts",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "postgresql://sift:sift@127.0.0.1:54322/sift",
+    url: process.env.DATABASE_URL ?? "postgresql://sift:sift-local-password@127.0.0.1:54322/sift",
   },
 });

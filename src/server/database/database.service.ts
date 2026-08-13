@@ -1,4 +1,4 @@
-import { Inject, Injectable, OnApplicationShutdown, OnModuleInit } from "@nestjs/common";
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from "@nestjs/common";
 import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -16,6 +16,7 @@ export type Database = NodePgDatabase<typeof schema>;
 export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
   readonly client: Database;
 
+  private readonly logger = new Logger(DatabaseService.name);
   private readonly pool: Pool;
 
   constructor(
@@ -32,6 +33,9 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
       connectionTimeoutMillis: environment.DATABASE_CONNECT_TIMEOUT_MS,
       statement_timeout: environment.DATABASE_STATEMENT_TIMEOUT_MS,
       application_name: `sift-${runtime}`,
+    });
+    this.pool.on("error", (error) => {
+      this.logger.error("Unexpected error from an idle PostgreSQL client.", error.stack);
     });
     this.client = drizzle(this.pool, { schema });
   }
