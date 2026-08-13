@@ -21,6 +21,7 @@ import { ImportInvariantError, ImportLeaseLostError } from "./import-worker.erro
 import { ImportWorkerRepository } from "./import-worker.repository.js";
 import type { ClaimedImportJob } from "./import-worker.types.js";
 import { parseNdjsonBatches } from "./ndjson-parser.js";
+import { WorkerHealthService } from "../health/worker-health.service.js";
 
 class WorkerStoppingError extends Error {
   constructor() {
@@ -43,9 +44,14 @@ export class ImportWorkerService implements OnModuleInit, OnApplicationShutdown 
     @Inject(ImportWorkerRepository) private readonly imports: ImportWorkerRepository,
     @Inject(StorageService) private readonly storage: StorageService,
     @Inject(ENVIRONMENT) private readonly environment: Environment,
+    @Inject(WorkerHealthService) private readonly health: Pick<
+      WorkerHealthService,
+      "markSuccessfulIteration" | "markStopping"
+    >,
   ) {}
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
+    await this.health.markSuccessfulIteration(true);
     this.runPromise = this.run();
   }
 
@@ -54,6 +60,7 @@ export class ImportWorkerService implements OnModuleInit, OnApplicationShutdown 
     this.stopPollingWait?.();
     this.activeStream?.destroy(new WorkerStoppingError());
     await this.runPromise;
+    await this.health.markStopping();
   }
 
   private async run(): Promise<void> {
@@ -63,8 +70,11 @@ export class ImportWorkerService implements OnModuleInit, OnApplicationShutdown 
         if (job) {
           const outcome = await this.process(job);
           if (outcome === "continue") {
+            await this.health.markSuccessfulIteration();
             continue;
           }
+        } else {
+          await this.health.markSuccessfulIteration();
         }
       } catch (error: unknown) {
         this.logger.error({
@@ -127,6 +137,7 @@ export class ImportWorkerService implements OnModuleInit, OnApplicationShutdown 
             duplicateCount: progress.duplicateCount,
             leaseExpiresAt: progress.leaseExpiresAt,
           };
+          await this.health.markSuccessfulIteration();
 
           if (this.stopping) {
             await this.imports.release(job.id, job.leaseToken);

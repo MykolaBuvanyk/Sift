@@ -7,9 +7,7 @@ import { WorkerModule } from "./worker.module.js";
 
 async function bootstrap(): Promise<void> {
   const environment = loadEnvironment();
-  const context = await NestFactory.createApplicationContext(WorkerModule.forRoot(environment), {
-    bufferLogs: true,
-  });
+  const context = await NestFactory.createApplicationContext(WorkerModule.forRoot(environment));
 
   context.enableShutdownHooks();
 }

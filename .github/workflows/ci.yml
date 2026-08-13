@@ -85,3 +85,36 @@ jobs:
           push: false
           cache-from: type=gha,scope=dashboard
           cache-to: type=gha,mode=max,scope=dashboard
+
+  production-stack:
+    name: Production Compose import flow
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      POSTGRES_PASSWORD: sift-local-password
+      S3_ACCESS_KEY: sift-local-access
+      S3_SECRET_KEY: sift-local-secret-key
+      SIFT_ENV_FILE: .env.example
+      WORKER_LEASE_SECONDS: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Start the complete production stack
+        run: docker compose --env-file .env.example -p sift-ci up --build -d --wait
+      - name: Verify upload, finalize, worker, report and idempotency
+        run: npm run test:e2e:stack
+        env:
+          SIFT_E2E_ROWS: 100000
+          SIFT_E2E_CRASH_WORKER: 1
+          SIFT_E2E_COMPOSE_PROJECT: sift-ci
+          SIFT_E2E_TIMEOUT_MS: 300000
+      - name: Show full stack logs on failure
+        if: failure()
+        run: docker compose --env-file .env.example -p sift-ci logs
+      - name: Remove the isolated stack
+        if: always()
+        run: docker compose --env-file .env.example -p sift-ci down --volumes

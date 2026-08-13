@@ -102,7 +102,7 @@ contracts -> zod only
 - `npm ci` під Node.js 22 — успішно;
 - `npm run lint` — успішно;
 - `npm run typecheck` — успішно;
-- `npm test` — 69/69;
+- `npm test` — 75/75;
 - `npm run test:memory` — 1,000,000 NDJSON + 1,000,000 CSV rows під 192 MB heap;
 - `npm run build` — contracts, NestJS backend/worker і Next.js успішно;
 - `npm run db:generate` — migration згенеровано;
@@ -522,8 +522,10 @@ completion без повторних contacts/counters. Наявні HTTP E2E п
 streaming report; browser smoke перевірив реальні API → MinIO → worker flows для NDJSON і CSV.
 
 Окремий `npm run test:memory` генерує дані на льоту без fixtures і в ізольованих процесах
-обробляє по 1,000,000 NDJSON та CSV rows з `--max-old-space-size=192`. Зафіксований peak RSS
-delta: 147.6 MB для NDJSON і 146.3 MB для CSV; обидва завершилися без OOM.
+обробляє по 1,000,000 NDJSON та CSV rows з `--max-old-space-size=192`. Останній зафіксований
+peak RSS delta: 156.8 MB для NDJSON і 146.2 MB для CSV; обидва завершилися без OOM. Додатково
+production-stack E2E реально імпортував 1,000,000 NDJSON contacts через API, MinIO, worker і
+PostgreSQL, а окремий 100,000-row сценарій пережив `SIGKILL` worker після checkpoint.
 
 ### Етап 12 — Docker, CI та фінальне завершення
 
@@ -580,7 +582,7 @@ containers, read-only filesystems, dropped capabilities, healthchecks, log rotat
 - перевірити відсутність secrets і великих generated fixtures у Git.
 
 Реалізовано: five-axis code review завершено; Dockerfile analyzer — 100/100; clean container
-stack пройшов health і повний CSV flow; 23/23 test files та 69/69 tests пройшли проти окремої
+stack пройшов health, million-row NDJSON і crash/resume flow; 26/26 test files та 75/75 tests пройшли проти окремої
 мігрованої PostgreSQL. Tracked secret/fixture scan не знайшов реальних credentials або великих
 generated datasets; `.env.example` містить лише явно позначені локальні placeholders.
 

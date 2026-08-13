@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
 import { DatabaseService } from "../../database/database.service.js";
 import { importJobs } from "../../database/schema.js";
@@ -49,25 +49,60 @@ export class ImportRepository {
     return row ? this.toReservation(row) : null;
   }
 
-  async markUploaded(
+  async finalizeUpload(
     ownerId: string,
     id: string,
     contentHash: string,
     uploadedAt: Date,
-  ): Promise<ImportReservation | null> {
-    const [row] = await this.database.client
-      .update(importJobs)
-      .set({ contentHash, uploadedAt, updatedAt: uploadedAt })
+  ): Promise<{ reservation: ImportReservation; deduplicated: boolean } | null> {
+    return this.database.client.transaction(async (transaction) => {
+      await transaction.execute(sql`
+        select pg_advisory_xact_lock(hashtextextended(${`${ownerId}:${contentHash}`}, 0))
+      `);
+
+      const [canonical] = await transaction
+        .select()
+        .from(importJobs)
+        .where(and(
+          eq(importJobs.ownerId, ownerId),
+          eq(importJobs.contentHash, contentHash),
+          ne(importJobs.id, id),
+        ))
+        .orderBy(asc(importJobs.createdAt), asc(importJobs.id))
+        .limit(1);
+      if (canonical) {
+        return { reservation: this.toReservation(canonical), deduplicated: true };
+      }
+
+      const [row] = await transaction
+        .update(importJobs)
+        .set({ contentHash, uploadedAt, updatedAt: uploadedAt })
+        .where(and(
+          eq(importJobs.id, id),
+          eq(importJobs.ownerId, ownerId),
+          isNull(importJobs.uploadedAt),
+          isNull(importJobs.cleanupToken),
+          gt(importJobs.reservationExpiresAt, uploadedAt),
+        ))
+        .returning();
+
+      return row
+        ? { reservation: this.toReservation(row), deduplicated: false }
+        : null;
+    });
+  }
+
+  async deleteUnuploadedReservation(ownerId: string, id: string): Promise<boolean> {
+    const deleted = await this.database.client
+      .delete(importJobs)
       .where(and(
         eq(importJobs.id, id),
         eq(importJobs.ownerId, ownerId),
         isNull(importJobs.uploadedAt),
-        isNull(importJobs.cleanupToken),
-        gt(importJobs.reservationExpiresAt, uploadedAt),
       ))
-      .returning();
+      .returning({ id: importJobs.id });
 
-    return row ? this.toReservation(row) : null;
+    return deleted.length === 1;
   }
 
   async retryFailed(

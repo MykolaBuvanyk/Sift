@@ -22,7 +22,10 @@ Requirements: Node.js 22+, npm, and Docker.
 cp .env.example .env
 # Replace AUTH_BEARER_TOKEN with a random value of at least 32 characters.
 npm ci
-docker compose up -d
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --wait postgres minio storage-gateway
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.dev.yml \
+  run --rm bucket-init
 npm run db:migrate
 ```
 
@@ -85,8 +88,10 @@ job and preserves its byte/line checkpoint and counters. Retrying a completed jo
 idempotent `200` no-op with `retried: false`; pending or running jobs return `409`.
 
 The API never receives the source bytes. Finalize verifies MinIO metadata and computes SHA-256
-from a stream before making the job visible to the worker. Unfinalized reservations expire and
-are removed automatically.
+from a stream before making the job visible to the worker. Owner-scoped content-hash
+canonicalization makes identical bytes uploaded under another idempotency key resolve to the
+existing job; the redundant object and reservation are removed. Unfinalized reservations expire
+and are removed automatically.
 
 The worker claims jobs through PostgreSQL `FOR UPDATE SKIP LOCKED`, reads the source with a
 Range request from the last committed byte checkpoint, and commits contacts, row errors,
@@ -118,6 +123,10 @@ npm run build
 docker compose config
 ```
 
-GitHub Actions runs these fast gates, a clean PostgreSQL/MinIO integration job, and both
-production image builds. The separate `Memory stress` workflow processes one million NDJSON
-and one million CSV rows on demand and every Monday.
+GitHub Actions runs these fast gates, clean PostgreSQL/MinIO integration, both production image
+builds, and a complete Compose upload/finalize/worker/idempotency flow. That flow sends a real
+`SIGKILL` to the worker after a committed checkpoint, waits for lease recovery, and verifies exact
+resume counters. The separate `Memory stress` workflow processes one million NDJSON and one
+million CSV parser rows and also imports one million generated NDJSON contacts through the
+complete production stack. A requirement-by-requirement audit is recorded in
+[TASK_COMPLIANCE.md](TASK_COMPLIANCE.md).

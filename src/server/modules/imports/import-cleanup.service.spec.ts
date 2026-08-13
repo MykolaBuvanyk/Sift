@@ -11,16 +11,16 @@ const cleanupReservation = {
   cleanupToken: "00000000-0000-4000-8000-000000000020",
 };
 
-function createService(deleteFailure = false) {
+function createService(deleteFailure?: unknown) {
   const repository = {
     claimExpiredForCleanup: vi.fn().mockResolvedValue([cleanupReservation]),
     completeCleanup: vi.fn().mockResolvedValue(true),
     releaseCleanupClaim: vi.fn().mockResolvedValue(undefined),
   };
   const storage = {
-    deleteObject: deleteFailure
-      ? vi.fn().mockRejectedValue(new Error("storage unavailable"))
-      : vi.fn().mockResolvedValue(undefined),
+    deleteObject: deleteFailure === undefined
+      ? vi.fn().mockResolvedValue(undefined)
+      : vi.fn().mockRejectedValue(deleteFailure),
   };
   const logger = {
     info: vi.fn(),
@@ -33,6 +33,7 @@ function createService(deleteFailure = false) {
   } as Environment;
 
   return {
+    logger,
     repository,
     storage,
     service: new ImportCleanupService(
@@ -58,7 +59,10 @@ describe("ImportCleanupService", () => {
   });
 
   it("releases the cleanup claim when object deletion fails", async () => {
-    const { service, repository } = createService(true);
+    const providerError = new Error("provider-secret-message", {
+      cause: new Error("nested-provider-secret"),
+    });
+    const { service, repository, logger } = createService(providerError);
 
     await service.cleanupExpiredReservations();
 
@@ -67,5 +71,10 @@ describe("ImportCleanupService", () => {
       cleanupReservation.id,
       cleanupReservation.cleanupToken,
     );
+    expect(logger.warn).toHaveBeenCalledWith(
+      { errorName: "Error", importId: cleanupReservation.id },
+      "expired import reservation cleanup will be retried",
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain("provider-secret");
   });
 });

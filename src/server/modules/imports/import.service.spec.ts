@@ -64,7 +64,8 @@ function createMocks(existing = reservation()) {
   const repository = {
     createOrGet: vi.fn().mockResolvedValue({ reservation: existing, created: true }),
     findOwnedById: vi.fn().mockResolvedValue(existing),
-    markUploaded: vi.fn(),
+    finalizeUpload: vi.fn(),
+    deleteUnuploadedReservation: vi.fn().mockResolvedValue(true),
     retryFailed: vi.fn(),
   };
   const storage = {
@@ -79,6 +80,7 @@ function createMocks(existing = reservation()) {
       contentLength: file.byteLength,
       contentType: "application/x-ndjson",
     }),
+    deleteObject: vi.fn().mockResolvedValue(undefined),
   };
 
   return {
@@ -140,17 +142,36 @@ describe("ImportService", () => {
       uploadedAt: new Date(),
     });
     const { service, repository } = createMocks();
-    repository.markUploaded.mockResolvedValue(finalized);
+    repository.finalizeUpload.mockResolvedValue({ reservation: finalized, deduplicated: false });
 
     const result = await service.finalize(ownerId, jobId);
 
-    expect(repository.markUploaded).toHaveBeenCalledWith(
+    expect(repository.finalizeUpload).toHaveBeenCalledWith(
       ownerId,
       jobId,
       finalized.contentHash,
       expect.any(Date),
     );
     expect(result.content_hash).toBe(finalized.contentHash);
+  });
+
+  it("returns the canonical job and removes a duplicate uploaded object by content hash", async () => {
+    const contentHash = createHash("sha256").update(file).digest("hex");
+    const canonical = reservation({
+      id: "00000000-0000-4000-8000-000000000099",
+      idempotencyKey: "canonical",
+      contentHash,
+      uploadedAt: new Date(),
+    });
+    const { service, repository, storage } = createMocks();
+    repository.finalizeUpload.mockResolvedValue({ reservation: canonical, deduplicated: true });
+
+    const result = await service.finalize(ownerId, jobId);
+
+    expect(storage.deleteObject).toHaveBeenCalledWith(key);
+    expect(repository.deleteUnuploadedReservation).toHaveBeenCalledWith(ownerId, jobId);
+    expect(result.job_id).toBe(canonical.id);
+    expect(result.content_hash).toBe(contentHash);
   });
 
   it("does not finalize an object with mismatched size", async () => {
@@ -162,7 +183,7 @@ describe("ImportService", () => {
 
     await expect(service.finalize(ownerId, jobId))
       .rejects.toBeInstanceOf(ImportUploadMetadataMismatchError);
-    expect(repository.markUploaded).not.toHaveBeenCalled();
+    expect(repository.finalizeUpload).not.toHaveBeenCalled();
   });
 
   it("maps a missing storage object to an import conflict", async () => {

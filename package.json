@@ -21,6 +21,7 @@
     "lint": "eslint .",
     "typecheck": "npm run build --workspace=@sift/contracts && npm run typecheck --workspace=@sift/contracts && npm run typecheck --workspace=@sift/server && tsc --noEmit",
     "test": "vitest run",
+    "test:e2e:stack": "node tests/e2e/import-stack.mjs",
     "test:memory": "npm run build --workspace=@sift/contracts && npm run build:server && node --expose-gc --max-old-space-size=192 tests/memory/import-memory-stress.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

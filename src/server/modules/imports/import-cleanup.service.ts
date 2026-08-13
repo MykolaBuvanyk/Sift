@@ -9,6 +9,7 @@ import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { ENVIRONMENT } from "../../config/environment.module.js";
 import type { Environment } from "../../config/environment.js";
 import { StorageService } from "../../storage/storage.service.js";
+import { toSafeErrorFields } from "../../common/logging/safe-error-fields.js";
 import { ImportRepository } from "./import.repository.js";
 import type { CleanupReservation } from "./import.types.js";
 
@@ -54,7 +55,10 @@ export class ImportCleanupService implements OnApplicationBootstrap, OnApplicati
         await this.cleanupOne(reservation);
       }
     } catch (error: unknown) {
-      this.logger.error({ err: error }, "import reservation cleanup batch failed");
+      this.logger.error(
+        toSafeErrorFields(error),
+        "import reservation cleanup batch failed",
+      );
     } finally {
       this.running = false;
     }
@@ -73,7 +77,7 @@ export class ImportCleanupService implements OnApplicationBootstrap, OnApplicati
     } catch (error: unknown) {
       await this.imports.releaseCleanupClaim(reservation.id, reservation.cleanupToken);
       this.logger.warn(
-        { err: error, importId: reservation.id },
+        { ...toSafeErrorFields(error), importId: reservation.id },
         "expired import reservation cleanup will be retried",
       );
     }

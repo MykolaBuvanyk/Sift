@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-The stage 7–8 worker path has no identified critical or high-severity vulnerability. PostgreSQL
+The complete import path has no identified critical or high-severity vulnerability. PostgreSQL
 queries are parameterized, object ownership originates from server-created job rows, lease UUIDs
 fence stale workers, batch writes are atomic, parser memory is bounded, provider errors are
 sanitized, and production dependencies currently report zero known vulnerabilities.
@@ -10,6 +10,13 @@ sanitized, and production dependencies currently report zero known vulnerabiliti
 The remaining findings are deployment/product hardening items. The static Bearer model is suitable
 for the documented local/single-owner scope but must not become the production multi-user auth
 model. Expensive import endpoints also need distributed rate limits before public deployment.
+
+The final hardening pass removed a long-stream availability defect: S3 request deadlines now
+bound only response establishment and are cleared after `GetObject` headers arrive, so a healthy
+multi-minute response body is not aborted by the short control-plane timeout. Worker readiness
+now depends on a successful-iteration heartbeat instead of a PID-only check. API, cleanup, and
+database diagnostics use an allowlisted error-name projection; full messages, stacks, and nested
+causes are never passed to the logger.
 
 ## Critical severity
 
@@ -87,7 +94,9 @@ No findings.
 - NDJSON lines and batches are bounded; no unbounded `Promise.all` is used.
 - CSV records and batches are bounded; quoted multiline records retain only a configured prefix
   after the byte limit, and resume re-reads a bounded header before the checkpoint Range stream.
-- Logs omit row contents, storage keys, credentials, tokens, and provider exception messages.
+- Logs omit row contents, storage keys, credentials, tokens, provider exception messages, stacks,
+  and nested causes; regression tests verify the sanitized payload boundary.
+- Worker diagnostics contain only bounded job IDs, stable failure codes, and error class names.
 - API authorization uses constant-time token comparison and log redaction.
 - The dashboard BFF validates inputs and upstream contracts, keeps the Bearer token server-side,
   disables caching for job state, and streams error reports without buffering them into blobs.

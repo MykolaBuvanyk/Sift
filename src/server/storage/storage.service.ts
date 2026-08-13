@@ -60,9 +60,9 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async ping(): Promise<void> {
-    await this.execute(() => this.client.send(
+    await this.executeWithTimeout((abortSignal) => this.client.send(
       new HeadBucketCommand({ Bucket: this.bucket }),
-      { abortSignal: AbortSignal.timeout(this.requestTimeoutMs) },
+      { abortSignal },
     ));
   }
 
@@ -92,9 +92,9 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async headObject(key: string): Promise<StoredObjectMetadata> {
-    const result = await this.execute(() => this.client.send(
+    const result = await this.executeWithTimeout((abortSignal) => this.client.send(
       new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
-      { abortSignal: AbortSignal.timeout(this.requestTimeoutMs) },
+      { abortSignal },
     ));
 
     if (result.ContentLength === undefined) {
@@ -113,13 +113,13 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
       throw new RangeError("startByte must be a non-negative safe integer.");
     }
 
-    const result = await this.execute(() => this.client.send(
+    const result = await this.executeWithTimeout((abortSignal) => this.client.send(
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,
         Range: `bytes=${startByte}-`,
       }),
-      { abortSignal: AbortSignal.timeout(this.requestTimeoutMs) },
+      { abortSignal },
     ));
 
     if (!(result.Body instanceof Readable) || result.ContentLength === undefined) {
@@ -136,9 +136,9 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async deleteObject(key: string): Promise<void> {
-    await this.execute(() => this.client.send(
+    await this.executeWithTimeout((abortSignal) => this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
-      { abortSignal: AbortSignal.timeout(this.requestTimeoutMs) },
+      { abortSignal },
     ));
   }
 
@@ -154,6 +154,20 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
       return await operation();
     } catch (error: unknown) {
       throw this.normalizeError(error);
+    }
+  }
+
+  private async executeWithTimeout<T>(
+    operation: (abortSignal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    timer.unref();
+
+    try {
+      return await this.execute(() => operation(controller.signal));
+    } finally {
+      clearTimeout(timer);
     }
   }
 

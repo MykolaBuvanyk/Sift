@@ -31,6 +31,8 @@ const environmentSchema = z.object({
   S3_PRESIGN_TTL_SECONDS: z.coerce.number().int().min(30).max(300).default(300),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
   WORKER_LEASE_SECONDS: z.coerce.number().int().min(5).max(3_600).default(30),
+  WORKER_HEALTH_FILE: z.string().min(1).default("/tmp/sift-worker-heartbeat"),
+  WORKER_HEALTH_WRITE_INTERVAL_MS: z.coerce.number().int().min(1_000).max(60_000).default(5_000),
 });
 
 export type Environment = z.infer<typeof environmentSchema>;

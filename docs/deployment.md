@@ -20,6 +20,10 @@ The stack builds a single backend image used by the migration, API, and worker p
 a separate Next.js standalone image. `migrate` and `bucket-init` are idempotent one-shot
 services; API and worker do not start until both complete successfully.
 
+The worker healthcheck is a readiness signal, not a PID check: it requires a recently updated
+heartbeat written only after a successful database polling/processing iteration. Persistent
+database, storage, or worker-loop failures therefore make the container unhealthy.
+
 - Dashboard: `http://localhost:3000`
 - API: `http://localhost:3001`
 - Streaming upload gateway: `http://127.0.0.1:9000`
@@ -46,7 +50,8 @@ database and uploaded objects.
 Expose PostgreSQL and the MinIO console only on loopback, then run applications from Node.js:
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml -f docker-compose.dev.yml up -d postgres minio
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d --wait postgres minio storage-gateway
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.dev.yml run --rm bucket-init
 npm run db:migrate
 npm run dev
@@ -99,9 +104,17 @@ docker compose --env-file .env config --quiet
 npm run test:memory
 ```
 
-Crash/resume is automated in `tests/import-pipeline.acceptance.spec.ts`: the test commits the
-first CSV batch, lets its lease expire, reclaims the job with another worker token, resumes at
-the exact byte checkpoint, and proves contacts and counters are not duplicated.
+Crash/resume is covered twice. `tests/import-pipeline.acceptance.spec.ts` commits the first CSV
+batch, lets its lease expire, reclaims the job with another worker token, and proves exact Range
+resume. The production-stack CI additionally imports 100,000 rows, sends a real `SIGKILL` to the
+worker after a committed checkpoint, restarts it after the lease expires, and verifies that the
+job completes without duplicate contacts or counters.
+
+`tests/e2e/import-stack.mjs` also proves request-key idempotency before and after completion plus
+owner-scoped content-hash canonicalization for identical bytes uploaded under another key. The
+S3 request deadline is cleared once `GetObject` response headers arrive, so it bounds connection
+setup without aborting a healthy long-running response body.
 
 CI separates fast quality checks, clean PostgreSQL/MinIO integration, production image builds,
-and the scheduled/manual million-row memory stress run.
+the complete production Compose upload/finalize/worker flow, and the scheduled/manual million-row
+end-to-end plus memory stress run.

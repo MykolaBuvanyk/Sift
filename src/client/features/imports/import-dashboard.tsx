@@ -77,10 +77,11 @@ function ImportWorkspace() {
       setPhase("uploading");
       await uploadImportSource(reservation, input.file, setUploadPercent);
       setPhase("finalizing");
-      await finalizeImport(reservation.job_id);
+      const finalized = await finalizeImport(reservation.job_id);
+      setJobId(finalized.job_id);
       setPhase("processing");
-      await queryClient.invalidateQueries({ queryKey: ["import", reservation.job_id] });
-      return reservation.job_id;
+      await queryClient.invalidateQueries({ queryKey: ["import", finalized.job_id] });
+      return finalized.job_id;
     },
   });
 

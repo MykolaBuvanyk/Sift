@@ -16,7 +16,12 @@ jobs:
   million-row-imports:
     name: 1M NDJSON and 1M CSV rows
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    env:
+      POSTGRES_PASSWORD: sift-local-password
+      S3_ACCESS_KEY: sift-local-access
+      S3_SECRET_KEY: sift-local-secret-key
+      SIFT_ENV_FILE: .env.example
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,4 +29,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test:memory
+      - name: Verify parser memory bounds
+        run: npm run test:memory
+      - name: Start complete production stack
+        run: docker compose --env-file .env.example -p sift-stress up --build -d --wait
+      - name: Import one million generated rows end to end
+        run: npm run test:e2e:stack
+        env:
+          SIFT_E2E_ROWS: 1000000
+          SIFT_E2E_INVALID_EVERY: 0
+          SIFT_E2E_TIMEOUT_MS: 2400000
+      - name: Show full stack logs on failure
+        if: failure()
+        run: docker compose --env-file .env.example -p sift-stress logs
+      - name: Remove the isolated stack
+        if: always()
+        run: docker compose --env-file .env.example -p sift-stress down --volumes

@@ -47,13 +47,18 @@ describe("ImportWorkerService CSV resume", () => {
         contentRange: `bytes ${startByte}-${source.byteLength - 1}/${source.byteLength}`,
       })),
     };
+    const health = {
+      markSuccessfulIteration: vi.fn().mockResolvedValue(undefined),
+      markStopping: vi.fn().mockResolvedValue(undefined),
+    };
     const worker = new ImportWorkerService(
       imports as unknown as ImportWorkerRepository,
       storage as unknown as StorageService,
       environment(),
+      health,
     );
 
-    worker.onModuleInit();
+    await worker.onModuleInit();
     await vi.waitFor(() => expect(imports.complete).toHaveBeenCalledWith(
       expect.objectContaining({
         id: job.id,
@@ -70,6 +75,8 @@ describe("ImportWorkerService CSV resume", () => {
     expect(storage.getRangeStream).toHaveBeenNthCalledWith(2, job.sourceObjectPath, checkpoint);
     expect(imports.commitBatch).toHaveBeenCalledTimes(1);
     expect(imports.fail).not.toHaveBeenCalled();
+    expect(health.markSuccessfulIteration).toHaveBeenCalled();
+    expect(health.markStopping).toHaveBeenCalledOnce();
   });
 });
 

@@ -10,6 +10,8 @@ import {
 import type { Request, Response } from "express";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
+import { toSafeErrorFields } from "../logging/safe-error-fields.js";
+
 interface NormalizedError {
   status: number;
   code: string;
@@ -43,7 +45,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (error.status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
         {
-          err: exception,
+          ...toSafeErrorFields(exception),
           code: error.code,
           method: request.method,
           path: request.url,

@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { setTimeout as delay } from "node:timers/promises";
+import { Readable } from "node:stream";
+
+import { describe, expect, it, vi } from "vitest";
 
 import type { Environment } from "../config/environment.js";
 import { StorageService } from "./storage.service.js";
@@ -48,6 +51,34 @@ describe("StorageService", () => {
     const storage = new StorageService(environment);
 
     await expect(storage.getRangeStream("object-key", -1)).rejects.toBeInstanceOf(RangeError);
+  });
+
+  it("clears the request timeout after range response headers arrive", async () => {
+    const storage = new StorageService({
+      ...environment,
+      S3_REQUEST_TIMEOUT_MS: 10,
+    });
+    let requestSignal: AbortSignal | undefined;
+    const client = (storage as unknown as {
+      client: {
+        send(command: unknown, options?: { abortSignal?: AbortSignal }): Promise<unknown>;
+      };
+    }).client;
+    vi.spyOn(client, "send").mockImplementation(async (_command, options) => {
+      requestSignal = options?.abortSignal;
+      return {
+        Body: Readable.from([Buffer.from("x")]),
+        ContentLength: 1,
+        ContentRange: "bytes 0-0/1",
+      };
+    });
+
+    const object = await storage.getRangeStream("object-key", 0);
+    await delay(25);
+
+    expect(requestSignal?.aborted).toBe(false);
+    object.stream.destroy();
+    storage.onApplicationShutdown();
   });
 
   it("signs browser uploads with the public endpoint", async () => {

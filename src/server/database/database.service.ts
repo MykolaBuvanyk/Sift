@@ -5,6 +5,7 @@ import { Pool } from "pg";
 
 import { ENVIRONMENT } from "../config/environment.module.js";
 import type { Environment } from "../config/environment.js";
+import { toSafeErrorFields } from "../common/logging/safe-error-fields.js";
 import * as schema from "./schema.js";
 
 export const DATABASE_RUNTIME = Symbol("DATABASE_RUNTIME");
@@ -35,7 +36,10 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
       application_name: `sift-${runtime}`,
     });
     this.pool.on("error", (error) => {
-      this.logger.error("Unexpected error from an idle PostgreSQL client.", error.stack);
+      this.logger.error({
+        message: "Unexpected error from an idle PostgreSQL client.",
+        ...toSafeErrorFields(error),
+      });
     });
     this.client = drizzle(this.pool, { schema });
   }

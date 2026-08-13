@@ -89,9 +89,14 @@ export class ImportService {
     );
 
     const uploadedAt = new Date();
-    const finalized = await this.imports.markUploaded(ownerId, id, contentHash, uploadedAt);
+    const finalized = await this.imports.finalizeUpload(ownerId, id, contentHash, uploadedAt);
+    if (finalized?.deduplicated) {
+      await this.storage.deleteObject(reservation.sourceObjectPath);
+      await this.imports.deleteUnuploadedReservation(ownerId, id);
+      return this.toFinalizeResponse(finalized.reservation);
+    }
     if (finalized) {
-      return this.toFinalizeResponse(finalized);
+      return this.toFinalizeResponse(finalized.reservation);
     }
 
     const current = await this.imports.findOwnedById(ownerId, id);
