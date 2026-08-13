@@ -6,8 +6,8 @@ import { loadEnvironment } from "../server/config/environment.js";
 import { WorkerModule } from "./worker.module.js";
 
 async function bootstrap(): Promise<void> {
-  loadEnvironment();
-  const context = await NestFactory.createApplicationContext(WorkerModule, {
+  const environment = loadEnvironment();
+  const context = await NestFactory.createApplicationContext(WorkerModule.forRoot(environment), {
     bufferLogs: true,
   });
 

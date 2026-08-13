@@ -19,6 +19,7 @@ Requirements: Node.js 22+, npm, and Docker.
 cp .env.example .env
 npm ci
 docker compose up -d
+npm run db:migrate
 ```
 
 Run each application in a separate terminal:
@@ -31,6 +32,7 @@ npm run dev:worker
 
 - Dashboard: `http://localhost:3000`
 - API liveness: `http://localhost:3001/health/live`
+- API readiness: `http://localhost:3001/health/ready`
 - MinIO console: `http://localhost:9001`
 
 ## Verification

@@ -5,7 +5,7 @@ import { createApiApplication } from "./app.js";
 
 async function bootstrap(): Promise<void> {
   const environment = loadEnvironment();
-  const app = await createApiApplication();
+  const app = await createApiApplication(environment);
 
   app.enableShutdownHooks();
   await app.listen(environment.SIFT_API_PORT, "0.0.0.0");
