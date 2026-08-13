@@ -1,0 +1,605 @@
+{
+  "id": "4c2b6803-72b0-4907-8910-759ef5442c73",
+  "prevId": "b5f9f01b-2087-478d-a741-736187ee8920",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.contacts": {
+      "name": "contacts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tags": {
+          "name": "tags",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "contacts_owner_email_idx": {
+          "name": "contacts_owner_email_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"email\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "contacts_email_normalized_check": {
+          "name": "contacts_email_normalized_check",
+          "value": "\"contacts\".\"email\" = lower(btrim(\"contacts\".\"email\")) and length(\"contacts\".\"email\") > 0"
+        },
+        "contacts_full_name_nonempty_check": {
+          "name": "contacts_full_name_nonempty_check",
+          "value": "length(btrim(\"contacts\".\"full_name\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.import_job_seen_contacts": {
+      "name": "import_job_seen_contacts",
+      "schema": "",
+      "columns": {
+        "job_id": {
+          "name": "job_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "import_job_seen_contacts_job_id_import_jobs_id_fk": {
+          "name": "import_job_seen_contacts_job_id_import_jobs_id_fk",
+          "tableFrom": "import_job_seen_contacts",
+          "tableTo": "import_jobs",
+          "columnsFrom": [
+            "job_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "import_job_seen_contacts_job_id_email_pk": {
+          "name": "import_job_seen_contacts_job_id_email_pk",
+          "columns": [
+            "job_id",
+            "email"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "import_job_seen_contacts_email_normalized_check": {
+          "name": "import_job_seen_contacts_email_normalized_check",
+          "value": "\"import_job_seen_contacts\".\"email\" = lower(btrim(\"import_job_seen_contacts\".\"email\")) and length(\"import_job_seen_contacts\".\"email\") > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.import_jobs": {
+      "name": "import_jobs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_name": {
+          "name": "original_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_object_path": {
+          "name": "source_object_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "format": {
+          "name": "format",
+          "type": "import_format",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "import_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "total_bytes": {
+          "name": "total_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "processed_bytes": {
+          "name": "processed_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_line_number": {
+          "name": "last_line_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "imported_count": {
+          "name": "imported_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "failed_count": {
+          "name": "failed_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "duplicate_count": {
+          "name": "duplicate_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_message": {
+          "name": "failure_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claimed_at": {
+          "name": "claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_token": {
+          "name": "lease_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uploaded_at": {
+          "name": "uploaded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reservation_expires_at": {
+          "name": "reservation_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cleanup_claimed_at": {
+          "name": "cleanup_claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cleanup_token": {
+          "name": "cleanup_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "import_jobs_owner_idempotency_idx": {
+          "name": "import_jobs_owner_idempotency_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "import_jobs_worker_idx": {
+          "name": "import_jobs_worker_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lease_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"import_jobs\".\"uploaded_at\" is not null and \"import_jobs\".\"status\" in ('pending', 'running')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "import_jobs_owner_status_created_idx": {
+          "name": "import_jobs_owner_status_created_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "import_jobs_expired_reservation_idx": {
+          "name": "import_jobs_expired_reservation_idx",
+          "columns": [
+            {
+              "expression": "reservation_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"import_jobs\".\"uploaded_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "import_jobs_idempotency_key_nonempty_check": {
+          "name": "import_jobs_idempotency_key_nonempty_check",
+          "value": "length(btrim(\"import_jobs\".\"idempotency_key\")) > 0"
+        },
+        "import_jobs_source_object_path_nonempty_check": {
+          "name": "import_jobs_source_object_path_nonempty_check",
+          "value": "length(btrim(\"import_jobs\".\"source_object_path\")) > 0"
+        },
+        "import_jobs_original_name_nonempty_check": {
+          "name": "import_jobs_original_name_nonempty_check",
+          "value": "\"import_jobs\".\"original_name\" is null or length(btrim(\"import_jobs\".\"original_name\")) > 0"
+        },
+        "import_jobs_total_bytes_nonnegative_check": {
+          "name": "import_jobs_total_bytes_nonnegative_check",
+          "value": "\"import_jobs\".\"total_bytes\" >= 0"
+        },
+        "import_jobs_processed_bytes_range_check": {
+          "name": "import_jobs_processed_bytes_range_check",
+          "value": "\"import_jobs\".\"processed_bytes\" >= 0 and \"import_jobs\".\"processed_bytes\" <= \"import_jobs\".\"total_bytes\""
+        },
+        "import_jobs_last_line_number_nonnegative_check": {
+          "name": "import_jobs_last_line_number_nonnegative_check",
+          "value": "\"import_jobs\".\"last_line_number\" >= 0"
+        },
+        "import_jobs_imported_count_nonnegative_check": {
+          "name": "import_jobs_imported_count_nonnegative_check",
+          "value": "\"import_jobs\".\"imported_count\" >= 0"
+        },
+        "import_jobs_failed_count_nonnegative_check": {
+          "name": "import_jobs_failed_count_nonnegative_check",
+          "value": "\"import_jobs\".\"failed_count\" >= 0"
+        },
+        "import_jobs_duplicate_count_nonnegative_check": {
+          "name": "import_jobs_duplicate_count_nonnegative_check",
+          "value": "\"import_jobs\".\"duplicate_count\" >= 0"
+        },
+        "import_jobs_lease_state_check": {
+          "name": "import_jobs_lease_state_check",
+          "value": "\n    (\"import_jobs\".\"status\" = 'running' and \"import_jobs\".\"claimed_at\" is not null and \"import_jobs\".\"lease_expires_at\" is not null and \"import_jobs\".\"lease_token\" is not null)\n    or\n    (\"import_jobs\".\"status\" <> 'running' and \"import_jobs\".\"claimed_at\" is null and \"import_jobs\".\"lease_expires_at\" is null and \"import_jobs\".\"lease_token\" is null)\n  "
+        },
+        "import_jobs_lease_window_check": {
+          "name": "import_jobs_lease_window_check",
+          "value": "\"import_jobs\".\"lease_expires_at\" is null or \"import_jobs\".\"lease_expires_at\" > \"import_jobs\".\"claimed_at\""
+        },
+        "import_jobs_terminal_state_check": {
+          "name": "import_jobs_terminal_state_check",
+          "value": "\n    (\"import_jobs\".\"status\" in ('completed', 'failed') and \"import_jobs\".\"finished_at\" is not null)\n    or\n    (\"import_jobs\".\"status\" in ('pending', 'running') and \"import_jobs\".\"finished_at\" is null)\n  "
+        },
+        "import_jobs_completed_bytes_check": {
+          "name": "import_jobs_completed_bytes_check",
+          "value": "\"import_jobs\".\"status\" <> 'completed' or \"import_jobs\".\"processed_bytes\" = \"import_jobs\".\"total_bytes\""
+        },
+        "import_jobs_upload_state_check": {
+          "name": "import_jobs_upload_state_check",
+          "value": "\n    (\"import_jobs\".\"uploaded_at\" is null and \"import_jobs\".\"content_hash\" is null)\n    or\n    (\"import_jobs\".\"uploaded_at\" is not null and \"import_jobs\".\"content_hash\" ~ '^[0-9a-f]{64}$')\n  "
+        },
+        "import_jobs_cleanup_claim_check": {
+          "name": "import_jobs_cleanup_claim_check",
+          "value": "\n    (\"import_jobs\".\"cleanup_claimed_at\" is null and \"import_jobs\".\"cleanup_token\" is null)\n    or\n    (\"import_jobs\".\"cleanup_claimed_at\" is not null and \"import_jobs\".\"cleanup_token\" is not null and \"import_jobs\".\"uploaded_at\" is null)\n  "
+        },
+        "import_jobs_failure_metadata_check": {
+          "name": "import_jobs_failure_metadata_check",
+          "value": "\n    (\"import_jobs\".\"failure_code\" is null and \"import_jobs\".\"failure_message\" is null)\n    or\n    (\"import_jobs\".\"status\" = 'failed' and length(btrim(\"import_jobs\".\"failure_code\")) > 0 and length(btrim(\"import_jobs\".\"failure_message\")) > 0)\n  "
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.import_row_errors": {
+      "name": "import_row_errors",
+      "schema": "",
+      "columns": {
+        "job_id": {
+          "name": "job_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "line_number": {
+          "name": "line_number",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raw_excerpt": {
+          "name": "raw_excerpt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "import_row_errors_job_id_import_jobs_id_fk": {
+          "name": "import_row_errors_job_id_import_jobs_id_fk",
+          "tableFrom": "import_row_errors",
+          "tableTo": "import_jobs",
+          "columnsFrom": [
+            "job_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "import_row_errors_job_id_line_number_pk": {
+          "name": "import_row_errors_job_id_line_number_pk",
+          "columns": [
+            "job_id",
+            "line_number"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "import_row_errors_line_number_positive_check": {
+          "name": "import_row_errors_line_number_positive_check",
+          "value": "\"import_row_errors\".\"line_number\" > 0"
+        },
+        "import_row_errors_error_code_nonempty_check": {
+          "name": "import_row_errors_error_code_nonempty_check",
+          "value": "length(btrim(\"import_row_errors\".\"error_code\")) > 0"
+        },
+        "import_row_errors_message_nonempty_check": {
+          "name": "import_row_errors_message_nonempty_check",
+          "value": "length(btrim(\"import_row_errors\".\"message\")) > 0"
+        },
+        "import_row_errors_raw_excerpt_length_check": {
+          "name": "import_row_errors_raw_excerpt_length_check",
+          "value": "char_length(\"import_row_errors\".\"raw_excerpt\") <= 500"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.import_format": {
+      "name": "import_format",
+      "schema": "public",
+      "values": [
+        "ndjson",
+        "csv"
+      ]
+    },
+    "public.import_status": {
+      "name": "import_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "running",
+        "completed",
+        "failed"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

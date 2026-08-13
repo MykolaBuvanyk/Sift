@@ -25,6 +25,7 @@ export const importJobs = pgTable("import_jobs", {
   id: uuid("id").defaultRandom().primaryKey(),
   ownerId: uuid("owner_id").notNull(),
   idempotencyKey: text("idempotency_key").notNull(),
+  originalName: text("original_name"),
   contentHash: text("content_hash"),
   sourceObjectPath: text("source_object_path").notNull(),
   format: importFormat("format").notNull(),
@@ -35,10 +36,15 @@ export const importJobs = pgTable("import_jobs", {
   importedCount: bigint("imported_count", { mode: "number" }).default(0).notNull(),
   failedCount: bigint("failed_count", { mode: "number" }).default(0).notNull(),
   duplicateCount: bigint("duplicate_count", { mode: "number" }).default(0).notNull(),
+  failureCode: text("failure_code"),
+  failureMessage: text("failure_message"),
   claimedAt: timestamp("claimed_at", { withTimezone: true }),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
   leaseToken: uuid("lease_token"),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }),
+  reservationExpiresAt: timestamp("reservation_expires_at", { withTimezone: true }),
+  cleanupClaimedAt: timestamp("cleanup_claimed_at", { withTimezone: true }),
+  cleanupToken: uuid("cleanup_token"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
@@ -48,14 +54,22 @@ export const importJobs = pgTable("import_jobs", {
     .on(table.status, table.leaseExpiresAt, table.createdAt)
     .where(sql`${table.uploadedAt} is not null and ${table.status} in ('pending', 'running')`),
   index("import_jobs_owner_status_created_idx").on(table.ownerId, table.status, table.createdAt),
+  index("import_jobs_expired_reservation_idx")
+    .on(table.reservationExpiresAt)
+    .where(sql`${table.uploadedAt} is null`),
   check("import_jobs_idempotency_key_nonempty_check", sql`length(btrim(${table.idempotencyKey})) > 0`),
   check("import_jobs_source_object_path_nonempty_check", sql`length(btrim(${table.sourceObjectPath})) > 0`),
+  check("import_jobs_original_name_nonempty_check", sql`${table.originalName} is null or length(btrim(${table.originalName})) > 0`),
   check("import_jobs_total_bytes_nonnegative_check", sql`${table.totalBytes} >= 0`),
   check("import_jobs_processed_bytes_range_check", sql`${table.processedBytes} >= 0 and ${table.processedBytes} <= ${table.totalBytes}`),
   check("import_jobs_last_line_number_nonnegative_check", sql`${table.lastLineNumber} >= 0`),
   check("import_jobs_imported_count_nonnegative_check", sql`${table.importedCount} >= 0`),
   check("import_jobs_failed_count_nonnegative_check", sql`${table.failedCount} >= 0`),
   check("import_jobs_duplicate_count_nonnegative_check", sql`${table.duplicateCount} >= 0`),
+  check(
+    "import_jobs_counter_reconciliation_check",
+    sql`${table.lastLineNumber} = ${table.importedCount} + ${table.failedCount} + ${table.duplicateCount}`,
+  ),
   check("import_jobs_lease_state_check", sql`
     (${table.status} = 'running' and ${table.claimedAt} is not null and ${table.leaseExpiresAt} is not null and ${table.leaseToken} is not null)
     or
@@ -72,6 +86,18 @@ export const importJobs = pgTable("import_jobs", {
     (${table.uploadedAt} is null and ${table.contentHash} is null)
     or
     (${table.uploadedAt} is not null and ${table.contentHash} ~ '^[0-9a-f]{64}$')
+  `),
+  check("import_jobs_cleanup_claim_check", sql`
+    (${table.cleanupClaimedAt} is null and ${table.cleanupToken} is null)
+    or
+    (${table.cleanupClaimedAt} is not null and ${table.cleanupToken} is not null and ${table.uploadedAt} is null)
+  `),
+  check("import_jobs_failure_metadata_check", sql`
+    (${table.failureCode} is null and ${table.failureMessage} is null)
+    or
+    (${table.status} = 'failed'
+      and length(btrim(${table.failureCode})) between 1 and 100
+      and char_length(${table.failureMessage}) between 1 and 500)
   `),
 ]);
 
@@ -98,7 +124,28 @@ export const importRowErrors = pgTable("import_row_errors", {
 }, (table) => [
   primaryKey({ columns: [table.jobId, table.lineNumber] }),
   check("import_row_errors_line_number_positive_check", sql`${table.lineNumber} > 0`),
-  check("import_row_errors_error_code_nonempty_check", sql`length(btrim(${table.errorCode})) > 0`),
-  check("import_row_errors_message_nonempty_check", sql`length(btrim(${table.message})) > 0`),
-  check("import_row_errors_raw_excerpt_length_check", sql`char_length(${table.rawExcerpt}) <= 500`),
+  check(
+    "import_row_errors_error_code_length_check",
+    sql`length(btrim(${table.errorCode})) between 1 and 100`,
+  ),
+  check(
+    "import_row_errors_message_length_check",
+    sql`char_length(${table.message}) between 1 and 500`,
+  ),
+  check(
+    "import_row_errors_raw_excerpt_length_check",
+    sql`char_length(${table.rawExcerpt}) <= 500 and octet_length(${table.rawExcerpt}) <= 500`,
+  ),
+]);
+
+export const importJobSeenContacts = pgTable("import_job_seen_contacts", {
+  jobId: uuid("job_id").notNull().references(() => importJobs.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.jobId, table.email] }),
+  check(
+    "import_job_seen_contacts_email_normalized_check",
+    sql`${table.email} = lower(btrim(${table.email})) and length(${table.email}) > 0`,
+  ),
 ]);

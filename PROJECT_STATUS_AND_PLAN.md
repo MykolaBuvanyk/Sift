@@ -102,7 +102,7 @@ contracts -> zod only
 - `npm ci` під Node.js 22 — успішно;
 - `npm run lint` — успішно;
 - `npm run typecheck` — успішно;
-- `npm test` — 6/6;
+- `npm test` — 44/44;
 - `npm run build` — contracts, NestJS backend/worker і Next.js успішно;
 - `npm run db:generate` — migration згенеровано;
 - `docker compose config` — валідний;
@@ -117,11 +117,8 @@ contracts -> zod only
 
 На поточному етапі ще немає:
 
-- створення import job через API;
-- фактичного завантаження файла в MinIO;
-- API статусу, retry та error report;
-- auth/owner isolation;
-- NDJSON або CSV streaming parser;
+- API error report;
+- CSV streaming parser та інтеграція NDJSON parser у worker lifecycle;
 - bounded batch pipeline;
 - PostgreSQL claim через `FOR UPDATE SKIP LOCKED`;
 - lease heartbeat і crash recovery;
@@ -132,7 +129,7 @@ contracts -> zod only
 
 ## 5. Точний план наступних етапів
 
-### Етап 3 — auth, contracts та API foundation
+### Етап 3 — auth, contracts та API foundation — завершено
 
 #### 3.1 Мінімальна auth-модель
 
@@ -141,6 +138,10 @@ contracts -> zod only
 - guard визначає server-side `ownerId`;
 - заборонити приймати `ownerId` з body/query;
 - усі repository queries фільтрувати за `owner_id`.
+
+Реалізовано: auth працює default-deny через global guard, health routes явно позначені
+`@Public()`, а trusted owner context формується лише з `AUTH_OWNER_ID`. У наступних етапах
+repository methods мають обов'язково приймати цей context і включати `owner_id` у кожен query.
 
 #### 3.2 API contracts
 
@@ -166,7 +167,12 @@ contracts -> zod only
 - невалідні DTO повертають стабільний `400` contract;
 - секрети й authorization headers не потрапляють у logs.
 
-### Етап 4 — створення import job і upload flow
+Реалізовано та покрито тестами: strict DTO/Zod contracts відхиляють ownership fields,
+Bearer guard повертає `401`, validation/filter формують стабільні errors, request logger
+створює/повертає `X-Request-ID` і редагує auth/cookie/token/secret fields. API приймає лише
+metadata body до `API_BODY_LIMIT_BYTES`; великі source bytes мають йти direct-to-MinIO на етапі 4.
+
+### Етап 4 — створення import job і upload flow — завершено
 
 Рекомендований варіант: direct-to-MinIO presigned upload, тому що він не проводить великі bytes через API.
 
@@ -201,7 +207,17 @@ contracts -> zod only
 - worker не може claim job до завершення upload;
 - metadata та object ownership перевіряються server-side.
 
+Реалізовано: `POST /imports` створює owner-scoped reservation і повертає короткоживий
+conditional presigned `PUT`; повторний idempotency key повертає ту саму job, а інші metadata
+дають `409`. `POST /imports/:id/finalize` виконує `HEAD`, звіряє size/content type, потоково
+обчислює SHA-256 і лише тоді встановлює `uploaded_at`, тому worker index не бачить
+незавершені upload. Finalize є ідемпотентним. Expired reservations атомарно claim-яться через
+`FOR UPDATE SKIP LOCKED`, після чого cleanup видаляє object і DB row; stale claims
+відновлюються після timeout. MinIO CORS обмежений `DASHBOARD_ORIGIN`.
+
 ### Етап 5 — status, retry та owner-safe queries
+
+Статус: **реалізовано**.
 
 #### 5.1 Status endpoint
 
@@ -224,7 +240,15 @@ contracts -> zod only
 - progress contract стабільний;
 - retry не створює нову job і не обнуляє підтверджений прогрес.
 
+Реалізовано: `GET /imports/:id` повертає owner-scoped стабільний progress contract і `404`
+для чужого/неіснуючого ID. Percent обмежений діапазоном `0..100`, рахується до двох знаків
+і не ділить на нуль. `POST /imports/:id/retry` атомарно переводить лише finalized `failed`
+job у `pending` без зміни checkpoint/counters. Для `completed` зафіксовано ідемпотентний
+`200` no-op (`retried: false`), для `pending`/`running` — `409 IMPORT.RETRY_NOT_ALLOWED`.
+
 ### Етап 6 — потоковий NDJSON parser
+
+Статус: **реалізовано та перевірено**.
 
 #### 6.1 Byte line reader
 
@@ -259,7 +283,17 @@ contracts -> zod only
 - peak memory не росте пропорційно розміру source file;
 - битий рядок повертається як row error, а parser продовжує роботу.
 
+Реалізовано framework-independent async parser у `src/worker/imports`: bounded byte line
+reader підтримує Node/Web streams, chunk boundaries, `LF`, `CRLF`, EOF line, абсолютні byte
+checkpoints і oversized lines без накопичення всього рядка. NDJSON parser нормалізує email,
+валідує кожен рядок через `contactSchema`, повертає стабільні row error codes та формує
+backpressure-aware batches до 1000 рядків. `IMPORT_MAX_LINE_BYTES` і `IMPORT_BATCH_SIZE`
+мають bounds у startup environment schema. Unit-тести покривають UTF-8 chunk boundaries,
+`LF`/`CRLF`, EOF line, oversized rows, parsing/validation errors і bounded excerpts.
+
 ### Етап 7 — PostgreSQL job queue, lease та recovery
+
+Статус: **реалізовано**.
 
 #### 7.1 Claim
 
@@ -290,7 +324,15 @@ contracts -> zod only
 - stale worker не може commit після takeover;
 - kill/restart продовжує import із committed checkpoint.
 
+Реалізовано: worker атомарно claim-ить `pending` або expired `running` NDJSON job через
+`FOR UPDATE SKIP LOCKED`, видає новий UUID fencing token та читає MinIO Range stream від
+committed `processed_bytes`. Кожен batch commit, completion і failure перевіряє чинний
+`lease_token` та expiry. Shutdown припиняє polling, перериває stream і безпечно повертає
+job у `pending`; transient storage failures також release-ять job для recovery.
+
 ### Етап 8 — атомарний batch commit і точні counters
+
+Статус: **реалізовано**.
 
 #### 8.1 Batch classification
 
@@ -328,6 +370,13 @@ last_line_number = imported_count + failed_count + duplicate_count
 - повторний commit того самого checkpoint не подвоює contacts, errors або counters;
 - crash до commit не залишає часткові дані;
 - crash після commit resume-иться з наступного рядка.
+
+Реалізовано: одна PostgreSQL transaction записує contacts, row errors, durable per-job
+dedup markers, counters, byte/line checkpoint і lease heartbeat. `(owner_id, email)` лишається
+фінальним concurrency guard; `import_job_seen_contacts` відрізняє duplicates між batch-ами
+того самого job. Exact checkpoint replay є no-op, а DB check гарантує
+`last_line_number = imported_count + failed_count + duplicate_count`. Completion/failure
+очищають lease fields і записують bounded sanitized failure metadata.
 
 ### Етап 9 — потоковий error report
 
@@ -487,9 +536,7 @@ last_line_number = imported_count + failed_count + duplicate_count
 
 Найближчі реалізаційні кроки:
 
-1. реалізувати Етап 3: auth, contracts, validation, error/logging foundation;
-2. реалізувати Етап 4: job reservation, presigned upload і finalize;
-3. додати Етап 5: status/retry API;
-4. лише після стабільного upload/job lifecycle переходити до parser і worker.
+1. реалізувати Етап 9: потоковий owner-safe error report;
+2. після стабілізації report contract перейти до dashboard.
 
 Такий порядок дає вертикальний результат на кожному кроці та не створює worker-логіку без готових persistence/storage boundaries.

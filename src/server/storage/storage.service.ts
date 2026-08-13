@@ -5,6 +5,7 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  DeleteObjectCommand,
   PutObjectCommand,
   S3Client,
   S3ServiceException,
@@ -64,12 +65,25 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
     return `owners/${encodeURIComponent(ownerId)}/imports/${randomUUID()}`;
   }
 
-  async createPresignedUploadUrl(key: string, contentType: string): Promise<string> {
-    return getSignedUrl(
-      this.client,
-      new PutObjectCommand({ Bucket: this.bucket, Key: key, ContentType: contentType }),
-      { expiresIn: this.presignTtlSeconds },
+  async createPresignedUploadUrl(
+    key: string,
+    contentType: string,
+    expiresInSeconds = this.presignTtlSeconds,
+  ): Promise<string> {
+    const boundedExpiry = Math.min(
+      this.presignTtlSeconds,
+      Math.max(1, Math.floor(expiresInSeconds)),
     );
+    return this.execute(() => getSignedUrl(
+      this.client,
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        ContentType: contentType,
+        IfNoneMatch: "*",
+      }),
+      { expiresIn: boundedExpiry },
+    ));
   }
 
   async headObject(key: string): Promise<StoredObjectMetadata> {
@@ -114,6 +128,13 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
       ...(result.ContentType === undefined ? {} : { contentType: result.ContentType }),
       ...(result.ETag === undefined ? {} : { etag: result.ETag }),
     };
+  }
+
+  async deleteObject(key: string): Promise<void> {
+    await this.execute(() => this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+      { abortSignal: AbortSignal.timeout(this.requestTimeoutMs) },
+    ));
   }
 
   onApplicationShutdown(): void {

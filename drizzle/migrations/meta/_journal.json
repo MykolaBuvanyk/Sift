@@ -15,6 +15,34 @@
       "when": 1786610688341,
       "tag": "0001_cultured_skin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786614430978,
+      "tag": "0002_import-upload-reservations",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786617028900,
+      "tag": "0003_unknown_changeling",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786618619945,
+      "tag": "0004_tan_maverick",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786618910779,
+      "tag": "0005_swift_hercules",
+      "breakpoints": true
     }
   ]
 }
