@@ -102,7 +102,7 @@ contracts -> zod only
 - `npm ci` під Node.js 22 — успішно;
 - `npm run lint` — успішно;
 - `npm run typecheck` — успішно;
-- `npm test` — 68/68;
+- `npm test` — 69/69;
 - `npm run test:memory` — 1,000,000 NDJSON + 1,000,000 CSV rows під 192 MB heap;
 - `npm run build` — contracts, NestJS backend/worker і Next.js успішно;
 - `npm run db:generate` — migration згенеровано;
@@ -116,8 +116,9 @@ contracts -> zod only
 
 ## 4. Що ще не реалізовано функціонально
 
-Після завершення CSV pipeline та етапу 11 залишаються production Docker images, повний CI
-integration stack, deployment hardening і фінальна документація етапу 12.
+Усі 12 запланованих етапів реалізовано. Поза scope тестового завдання залишаються продуктова
+ідентифікація користувачів замість статичного Bearer token, distributed rate limiting та
+конфігурація конкретної хмарної платформи/secret manager.
 
 ## 5. Точний план наступних етапів
 
@@ -537,6 +538,11 @@ delta: 147.6 MB для NDJSON і 146.3 MB для CSV; обидва заверш�
 - non-root, read-only root filesystem, dropped capabilities;
 - resource limits і healthchecks.
 
+Реалізовано: pinned Node 22 multi-stage build створює один backend runtime для API/worker/
+migrations та окремий Next standalone runtime. Compose має idempotent `migrate`/`bucket-init`,
+internal backend network, unprivileged streaming gateway для presigned uploads, non-root app
+containers, read-only filesystems, dropped capabilities, healthchecks, log rotation і limits.
+
 #### 12.2 CI
 
 - Node.js 22 і `npm ci`;
@@ -547,6 +553,10 @@ delta: 147.6 MB для NDJSON і 146.3 MB для CSV; обидва заверш�
 - integration/E2E;
 - dependency audit;
 - окремий memory stress workflow.
+
+Реалізовано: `.github/workflows/ci.yml` виконує clean `npm ci`, lint, types, tests, build, audit,
+чистий PostgreSQL/MinIO integration stack, runtime migrations, E2E та builds обох images. Окремий
+`memory-stress.yml` запускається вручну та щотижня.
 
 #### 12.3 Документація
 
@@ -560,12 +570,19 @@ delta: 147.6 MB для NDJSON і 146.3 MB для CSV; обидва заверш�
 - crash simulation;
 - verification commands.
 
+Реалізовано в `README.md`, `.env.example` та `docs/deployment.md`.
+
 #### 12.4 Фінальне рев'ю
 
 - перевірити кожен Definition of Done пункт задачі;
 - виконати code-quality, security, NestJS, React і Docker review;
 - перевірити clean install і clean database;
 - перевірити відсутність secrets і великих generated fixtures у Git.
+
+Реалізовано: five-axis code review завершено; Dockerfile analyzer — 100/100; clean container
+stack пройшов health і повний CSV flow; 23/23 test files та 69/69 tests пройшли проти окремої
+мігрованої PostgreSQL. Tracked secret/fixture scan не знайшов реальних credentials або великих
+generated datasets; `.env.example` містить лише явно позначені локальні placeholders.
 
 Критерій готовності:
 
@@ -574,12 +591,9 @@ delta: 147.6 MB для NDJSON і 146.3 MB для CSV; обидва заверш�
 - CI дає докази всіх ключових інваріантів;
 - проєкт відповідає Definition of Done Sift.
 
-## 6. Рекомендований найближчий порядок роботи
+## 6. Подальші кроки поза тестовим завданням
 
-Найближчі реалізаційні кроки:
-
-1. реалізувати production Docker images і повний compose stack етапу 12;
-2. додати GitHub Actions для clean migrations, integration/E2E, audit та окремого memory stress;
-3. завершити deployment hardening, документацію і фінальне Definition of Done review.
-
-Такий порядок дає вертикальний результат на кожному кроці та не створює worker-логіку без готових persistence/storage boundaries.
+1. підключити реального identity provider замість single-owner static token;
+2. додати distributed quotas/rate limiting на edge;
+3. обрати deployment platform, secret manager, TLS ingress і managed PostgreSQL/S3;
+4. додати image publishing/signing та environment-specific rollout jobs після вибору registry.

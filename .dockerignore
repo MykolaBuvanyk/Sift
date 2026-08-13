@@ -5,3 +5,8 @@ node_modules
 coverage
 .env*
 *.log
+.DS_Store
+.github
+security_best_practices_report.md
+PROJECT_STATUS_AND_PLAN.md
+tests

@@ -1,0 +1,10 @@
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-54322}:5432"
+    networks: [backend, public]
+
+  minio:
+    ports:
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    networks: [backend, public]

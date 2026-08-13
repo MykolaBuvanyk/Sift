@@ -39,6 +39,9 @@ npm run dev:worker
 - API readiness: `http://localhost:3001/health/ready`
 - MinIO console: `http://localhost:9001`
 
+For a production-like start with compiled containers, one-shot migrations, healthchecks, and
+runtime hardening, see [Deployment and operations](docs/deployment.md).
+
 Health endpoints are public. All current and future business endpoints are protected by default;
 send `Authorization: Bearer <AUTH_BEARER_TOKEN>`. Ownership is always derived from
 `AUTH_OWNER_ID` on the server and is never accepted from request metadata.
@@ -55,6 +58,27 @@ browser. `SIFT_API_URL` configures their NestJS upstream and defaults to `http:/
 3. Call `POST /imports/:jobId/finalize` without a body.
 4. Read current progress from `GET /imports/:jobId`.
 5. Download row-level failures from `GET /imports/:jobId/errors`.
+
+Minimal API example:
+
+```bash
+curl -X POST http://localhost:3001/imports \
+  -H "Authorization: Bearer $AUTH_BEARER_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "idempotency_key": "contacts-2026-08-13",
+    "format": "csv",
+    "filename": "contacts.csv",
+    "declared_size_bytes": 12345
+  }'
+
+# PUT the file to upload_url with every upload_headers value from the response,
+# then replace <job-id> below.
+curl -X POST http://localhost:3001/imports/<job-id>/finalize \
+  -H "Authorization: Bearer $AUTH_BEARER_TOKEN"
+curl http://localhost:3001/imports/<job-id> \
+  -H "Authorization: Bearer $AUTH_BEARER_TOKEN"
+```
 
 Failed finalized jobs can be resumed with `POST /imports/:jobId/retry`. Retry reuses the same
 job and preserves its byte/line checkpoint and counters. Retrying a completed job is an
@@ -93,3 +117,7 @@ npm run test:memory
 npm run build
 docker compose config
 ```
+
+GitHub Actions runs these fast gates, a clean PostgreSQL/MinIO integration job, and both
+production image builds. The separate `Memory stress` workflow processes one million NDJSON
+and one million CSV rows on demand and every Monday.

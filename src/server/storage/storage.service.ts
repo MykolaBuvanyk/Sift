@@ -32,6 +32,7 @@ export interface ObjectRangeStream extends StoredObjectMetadata {
 export class StorageService implements OnModuleInit, OnApplicationShutdown {
   private readonly bucket: string;
   private readonly client: S3Client;
+  private readonly presignClient: S3Client;
   private readonly presignTtlSeconds: number;
   private readonly requestTimeoutMs: number;
 
@@ -39,7 +40,7 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
     this.bucket = environment.S3_BUCKET;
     this.presignTtlSeconds = environment.S3_PRESIGN_TTL_SECONDS;
     this.requestTimeoutMs = environment.S3_REQUEST_TIMEOUT_MS;
-    this.client = new S3Client({
+    const clientOptions = {
       endpoint: environment.S3_ENDPOINT,
       region: environment.S3_REGION,
       credentials: {
@@ -47,7 +48,11 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
         secretAccessKey: environment.S3_SECRET_KEY,
       },
       forcePathStyle: true,
-    });
+    } satisfies ConstructorParameters<typeof S3Client>[0];
+    this.client = new S3Client(clientOptions);
+    this.presignClient = environment.S3_PUBLIC_ENDPOINT
+      ? new S3Client({ ...clientOptions, endpoint: environment.S3_PUBLIC_ENDPOINT })
+      : this.client;
   }
 
   async onModuleInit(): Promise<void> {
@@ -75,7 +80,7 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
       Math.max(1, Math.floor(expiresInSeconds)),
     );
     return this.execute(() => getSignedUrl(
-      this.client,
+      this.presignClient,
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
@@ -139,6 +144,9 @@ export class StorageService implements OnModuleInit, OnApplicationShutdown {
 
   onApplicationShutdown(): void {
     this.client.destroy();
+    if (this.presignClient !== this.client) {
+      this.presignClient.destroy();
+    }
   }
 
   private async execute<T>(operation: () => Promise<T>): Promise<T> {

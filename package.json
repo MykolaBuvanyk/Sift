@@ -16,6 +16,7 @@
     "dev:worker": "npm run dev:worker --workspace=@sift/server",
     "build": "npm run build --workspace=@sift/contracts && npm run build --workspace=@sift/server && next build",
     "build:dashboard": "next build",
+    "build:backend": "npm run build --workspace=@sift/contracts && npm run build:server",
     "build:server": "npm run build --workspace=@sift/server",
     "lint": "eslint .",
     "typecheck": "npm run build --workspace=@sift/contracts && npm run typecheck --workspace=@sift/contracts && npm run typecheck --workspace=@sift/server && tsc --noEmit",
@@ -23,6 +24,7 @@
     "test:memory": "npm run build --workspace=@sift/contracts && npm run build:server && node --expose-gc --max-old-space-size=192 tests/memory/import-memory-stress.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:runtime": "node dist/server/database/migrate.js",
     "start": "next start"
   },
   "dependencies": {

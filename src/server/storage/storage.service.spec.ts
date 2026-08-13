@@ -49,4 +49,16 @@ describe("StorageService", () => {
 
     await expect(storage.getRangeStream("object-key", -1)).rejects.toBeInstanceOf(RangeError);
   });
+
+  it("signs browser uploads with the public endpoint", async () => {
+    const storage = new StorageService({
+      ...environment,
+      S3_PUBLIC_ENDPOINT: "https://uploads.example.test",
+    });
+
+    const url = await storage.createPresignedUploadUrl("object-key", "text/csv");
+
+    expect(new URL(url).origin).toBe("https://uploads.example.test");
+    storage.onApplicationShutdown();
+  });
 });

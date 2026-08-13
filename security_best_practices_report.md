@@ -94,6 +94,10 @@ No findings.
 - CORS allowlists one configured origin and does not enable credentials.
 - Express fingerprinting is reduced by disabling `x-powered-by`.
 - `npm audit --omit=dev`: zero known production dependency vulnerabilities on 2026-08-13.
+- Production app images run as non-root with read-only roots, all capabilities dropped,
+  `no-new-privileges`, healthchecks, resource bounds, and bounded log rotation.
+- PostgreSQL and MinIO stay on an internal network; the loopback-only unprivileged storage
+  gateway preserves signed headers and disables buffering for direct large-file uploads.
 
 ## Verdict
 
